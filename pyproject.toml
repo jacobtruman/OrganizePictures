@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+
+[project]
+name = 'OrganizePictures
+version = '0.0.1'
+description='A tool for organizing pictures into folders by date.'
+
+authors = [
+    {name = "Jacob Truman", email="jacob.truman@gmail.com"},
+]
+
+dependencies = [
+    "pytz>=2023.3",
+    "piexif>=1.1.3",
+    "pymediainfo>=6.0.1",
+    "ffmpeg-python>=0.2.0",
+    "pillow>=10.0.0",
+]
+
+requires-python = ">=3.7, <4"
+
+[project.urls]
+homepage = "https://github.com/jacobtruman/OrganizePictures"
+documentation = "https://github.com/jacobtruman/OrganizePictures"
+repository = "https://github.com/jacobtruman/OrganizePictures"
+
+[project.scripts]
+truaudiobook = 'organize_pictures.scripts.organizepictures:main'

@@ -24,7 +24,14 @@ class OrganizePictures:
     PREFERRED_IMAGE_EXT = '.jpg'
     PREFERRED_VIDEO_EXT = '.mp4'
 
-    def __init__(self, logger: Logger, source_directory: str, destination_directory: str):
+    def __init__(
+            self,
+            logger: Logger,
+            source_directory: str,
+            destination_directory: str,
+            dry_run: bool = False,
+    ):
+        self.dry_run = dry_run
         self.logger = logger
         self.source_dir = source_directory
         self.dest_dir = destination_directory
@@ -190,3 +197,4 @@ class OrganizePictures:
                             )
                             image = Image.open(file)
                             image.convert('RGB').save(new_file_info['convert_path'])
+        return True
