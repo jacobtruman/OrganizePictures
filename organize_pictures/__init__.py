@@ -201,6 +201,9 @@ class OrganizePictures:
                             )
                             image = Image.open(file)
                             image.convert('RGB').save(new_file_info['convert_path'])
+                else:
+                    # file is already moved
+                    moved = True
             if moved and self.cleanup:
                 self.logger.info(f"Deleting file: {file}")
                 os.remove(file)
