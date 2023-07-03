@@ -169,6 +169,7 @@ class OrganizePictures:
                 new_file_info = self.get_new_fileinfo(file, date_taken)
                 if new_file_info is not None:
                     if new_file_info['ext'] in self.VID_EXTS:
+                        self.logger.info(f"Converting '{file}' to '{new_file_info['path']}'")
                         stream = ffmpeg.input(file)
                         stream = ffmpeg.output(
                             stream,
@@ -176,7 +177,8 @@ class OrganizePictures:
                             acodec="aac",
                             vcodec="h264",
                             map_metadata=0,
-                            metadata=f"comment=Converted {file} to {new_file_info['path']}"
+                            metadata=f"comment=Converted {file} to {new_file_info['path']}",
+                            loglevel="quiet"
                         )
                         _, err = ffmpeg.run(stream)
                         if err is None:
