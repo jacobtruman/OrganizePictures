@@ -31,6 +31,7 @@ class OrganizePictures:
             logger: Logger,
             source_directory: str,
             destination_directory: str,
+            extensions: list = None,
             dry_run: bool = False,
             cleanup: bool = False,
             verbose: bool = False,
@@ -42,7 +43,7 @@ class OrganizePictures:
         self.cleanup = cleanup
         self.verbose = verbose
 
-        self.extensions = self.IMG_EXTS + self.VID_EXTS
+        self.extensions = self.IMG_EXTS + self.VID_EXTS if extensions is None else extensions
 
     @staticmethod
     def _get_file_ext(file):
@@ -78,16 +79,11 @@ class OrganizePictures:
         return files
 
     def get_date_taken(self, _file: str) -> datetime:
-        # print(file)
-
         date_time_obj = None
         ext = self._get_file_ext(_file).lower()
         if ext in self.VID_EXTS:
             media_info = MediaInfo.parse(_file)
             for track in media_info.tracks:
-                print(_file)
-                print(track.track_type)
-                print(track.encoded_date)
                 if track.track_type in ['Video', 'General'] and track.encoded_date is not None:
                     date_time_obj = datetime.strptime(track.encoded_date, "%Z %Y-%m-%d %H:%M:%S")
                     _fromtz = pytz.timezone(track.encoded_date[0:track.encoded_date.find(" ")])
