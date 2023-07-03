@@ -26,4 +26,4 @@ documentation = "https://github.com/jacobtruman/OrganizePictures"
 repository = "https://github.com/jacobtruman/OrganizePictures"
 
 [project.scripts]
-truaudiobook = 'organize_pictures.scripts.organizepictures:main'
+organizepictures = 'organize_pictures.scripts.organizepictures:main'
