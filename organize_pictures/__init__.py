@@ -18,7 +18,6 @@ class OrganizePictures:
     FILENAME_DATE_FORMAT = "%Y-%m-%d_%H'%M'%S"
     ENCODED_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
     IMG_EXTS = ['.jpg', '.png', '.heic']
-    IMG_EXTS = ['.png']
     VID_EXTS = ['.mp4', '.mpg', '.mov']
     IMG_CONVERT_EXTS = ['.heic']
     VID_CONVERT_EXTS = ['.mpg', '.mov']
@@ -100,11 +99,14 @@ class OrganizePictures:
                 date_time_obj = datetime.fromtimestamp(
                     int(self._load_json_file(json_file).get('photoTakenTime', {}).get('timestamp')))
             else:
-                exif_dict = piexif.load(_file)
-                for tag, value in exif_dict['Exif'].items():
-                    if "DateTimeDigitized" in piexif.TAGS['Exif'][tag]["name"]:
-                        date_time_obj = datetime.strptime(value.decode(), '%Y:%m:%d %H:%M:%S')
-                        break
+                try:
+                    exif_dict = piexif.load(_file)
+                    for tag, value in exif_dict['Exif'].items():
+                        if "DateTimeDigitized" in piexif.TAGS['Exif'][tag]["name"]:
+                            date_time_obj = datetime.strptime(value.decode(), '%Y:%m:%d %H:%M:%S')
+                            break
+                except piexif._exceptions.InvalidImageDataError:
+                    self.logger.error(f'Unable to get exif data for file: {_file}')
         # if other dates are not found, use the file modified date
         if date_time_obj is None:
             date_time_obj = datetime.strptime(time.ctime(os.path.getmtime(_file)), '%c')
