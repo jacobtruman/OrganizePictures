@@ -24,19 +24,22 @@ class OrganizePictures:
     PREFERRED_IMAGE_EXT = '.jpg'
     PREFERRED_VIDEO_EXT = '.mp4'
 
+    # pylint: disable=too-many-arguments
     def __init__(
             self,
             logger: Logger,
             source_directory: str,
             destination_directory: str,
             dry_run: bool = False,
+            cleanup: bool = False,
     ):
-        self.dry_run = dry_run
         self.logger = logger
         self.source_dir = source_directory
         self.dest_dir = destination_directory
+        self.dry_run = dry_run
+        self.cleanup = cleanup
+
         self.extensions = [".jpg", ".heic", ".mp4", ".mpg", ".mov"]
-        self.ext_found = []
 
     @staticmethod
     def _get_file_ext(file):
@@ -65,8 +68,6 @@ class OrganizePictures:
         for file in paths:
             if os.path.isfile(file):
                 ext = self._get_file_ext(file)
-                if ext not in self.ext_found:
-                    self.ext_found.append(ext)
                 if ext.lower() in self.extensions:
                     files.append(file)
             elif os.path.isdir(file):
@@ -81,10 +82,7 @@ class OrganizePictures:
         if ext in self.VID_EXTS:
             media_info = MediaInfo.parse(_file)
             for track in media_info.tracks:
-                # if hasattr(track, 'comment') and track.comment is not None:
-                #     print(f"########### COMMENT: {track.comment}")
                 if track.track_type == 'Video':
-                    # print track.encoded_date
                     if hasattr(track, 'encoded_date') and track.encoded_date is not None:
                         date_time_obj = datetime.strptime(track.encoded_date, "%Z %Y-%m-%d %H:%M:%S")
                         _fromtz = pytz.timezone(track.encoded_date[0:track.encoded_date.find(" ")])
@@ -164,6 +162,8 @@ class OrganizePictures:
     def run(self):
         files = self.get_files(self.source_dir)
         for file in files:
+            moved = False
+            json_file = f"{file}.json"
             date_taken = self.get_date_taken(file)
             if date_taken is not None:
                 new_file_info = self.get_new_fileinfo(file, date_taken)
@@ -181,7 +181,7 @@ class OrganizePictures:
                         _, err = ffmpeg.run(stream)
                         if err is None:
                             self.logger.info(f"Successfully converted '{file}' to '{new_file_info['path']}'")
-                            # maybe delete the original file here...
+                            moved = True
                         else:
                             self.logger.error(f"Failed to convert '{file}' to '{new_file_info['path']}'")
                     else:
@@ -189,12 +189,19 @@ class OrganizePictures:
                         shutil.copyfile(file, new_file_info['path'])
                         if new_file_info.get('json_filename') is not None:
                             self.logger.info(
-                                f"Moving file:\n\tSource: {file}.json\n\tDestination: {new_file_info['json_path']}")
-                            shutil.copyfile(f"{file}.json", new_file_info['json_path'])
+                                f"Moving file:\n\tSource: {json_file}\n\tDestination: {new_file_info['json_path']}")
+                            shutil.copyfile(json_file, new_file_info['json_path'])
                         if new_file_info.get('convert_path') is not None:
                             self.logger.debug(
                                 f"Converting file:\n\tSource: {file}\n\tDestination: {new_file_info['convert_path']}"
                             )
                             image = Image.open(file)
                             image.convert('RGB').save(new_file_info['convert_path'])
+            if moved and self.cleanup:
+                self.logger.info(f"Deleting file: {file}")
+                os.remove(file)
+                if os.path.isfile(json_file):
+                    self.logger.info(f"Deleting JSON file: {file}")
+                    os.remove(json_file)
+
         return True
