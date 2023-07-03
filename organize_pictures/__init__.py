@@ -19,7 +19,8 @@ class OrganizePictures:
     ENCODED_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
     IMG_EXTS = ['.jpg', '.jpeg', '.png', '.heic']
     VID_EXTS = ['.mp4', '.mpg', '.mov']
-    IMG_CONVERT_EXTS = ['.heic', '.jpeg']
+    IMG_CONVERT_EXTS = ['.heic']
+    IMG_CHANGE_EXTS = ['.jpeg']
     VID_CONVERT_EXTS = ['.mpg', '.mov']
     PREFERRED_IMAGE_EXT = '.jpg'
     PREFERRED_VIDEO_EXT = '.mp4'
@@ -134,6 +135,8 @@ class OrganizePictures:
             _new_file_info['convert_path'] = f"{_dir}/{_filename.replace(_ext, self.PREFERRED_IMAGE_EXT)}"
         if _ext in self.VID_CONVERT_EXTS:
             _new_file_info['path'] = f"{_dir}/{_filename.replace(_ext, self.PREFERRED_VIDEO_EXT)}"
+        if _ext in self.IMG_CHANGE_EXTS:
+            _new_file_info['path'] = f"{_dir}/{_filename.replace(_ext, self.PREFERRED_IMAGE_EXT)}"
 
         if not os.path.isdir(_new_file_info['dir']):
             self.logger.warning(f"Destination path does not exist, creating: {_new_file_info['dir']}")
