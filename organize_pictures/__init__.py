@@ -50,6 +50,17 @@ class OrganizePictures:
         _, ext = os.path.splitext(os.path.basename(file))
         return ext
 
+    def _get_json_file(self, _file):
+        if "(" in _file and ")" in _file:
+            ext = self._get_file_ext(_file)
+            start = _file.find("(")
+            end = _file.find(")")
+            base_file = _file[:start]
+            file_num = _file[start + 1:end]
+            _file = f"{base_file}{ext}({file_num})"
+            print(_file)
+        return f"{_file}.json"
+
     @staticmethod
     def _load_json_file(json_file: str):
         parsed_json = None
@@ -91,7 +102,7 @@ class OrganizePictures:
                     date_time_obj = datetime.astimezone(date_time_obj.replace(tzinfo=_fromtz), _totz)
                     break
         elif ext in self.IMG_EXTS:
-            json_file = f"{_file}.json"
+            json_file = self._get_json_file(_file)
             if os.path.isfile(json_file):
                 date_time_obj = datetime.fromtimestamp(
                     int(self._load_json_file(json_file).get('photoTakenTime', {}).get('timestamp')))
@@ -123,10 +134,11 @@ class OrganizePictures:
             'path': f"{_dir}/{_filename}",
             'date_encoded': _date.strftime(self.ENCODED_DATE_FORMAT)
         }
-        json_file = f"{_file}.json"
+        json_file = self._get_json_file(_file)
         if os.path.isfile(json_file):
-            _new_file_info['json_filename'] = f"{_filename}.json"
-            _new_file_info['json_path'] = f"{_dir}/{_filename}.json"
+            json_filename = self._get_json_file(_filename)
+            _new_file_info['json_filename'] = json_filename
+            _new_file_info['json_path'] = f"{_dir}/{json_filename}"
         if _ext in self.IMG_CONVERT_EXTS:
             _new_file_info['convert_path'] = f"{_dir}/{_filename.replace(_ext, self.PREFERRED_IMAGE_EXT)}"
         if _ext in self.VID_CONVERT_EXTS:
@@ -167,7 +179,7 @@ class OrganizePictures:
         files = self.get_files(self.source_dir)
         for file in files:
             moved = False
-            json_file = f"{file}.json"
+            json_file = self._get_json_file(file)
             date_taken = self.get_date_taken(file)
             if date_taken is not None:
                 new_file_info = self.get_new_fileinfo(file, date_taken)

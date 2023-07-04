@@ -3,7 +3,7 @@ requires = ["setuptools", "wheel"]
 
 [project]
 name = 'OrganizePictures'
-version = '0.1.3'
+version = '0.1.4'
 description='A tool for organizing pictures into folders by date.'
 
 authors = [
