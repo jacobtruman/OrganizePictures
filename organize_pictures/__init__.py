@@ -13,12 +13,15 @@ from pymediainfo import MediaInfo
 import ffmpeg
 from PIL import Image
 
+MEDIA_TYPES = {
+    'image': ['.jpg', '.jpeg', '.png', '.heic'],
+    'video': ['.mp4', '.mpg', '.mov', '.m4v', '.mts'],
+}
+
 
 class OrganizePictures:
     FILENAME_DATE_FORMAT = "%Y-%m-%d_%H'%M'%S"
     ENCODED_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
-    IMG_EXTS = ['.jpg', '.jpeg', '.png', '.heic']
-    VID_EXTS = ['.mp4', '.mpg', '.mov', '.m4v', '.mts']
     IMG_CONVERT_EXTS = ['.heic']
     IMG_CHANGE_EXTS = ['.jpeg']
     VID_CONVERT_EXTS = ['.mpg', '.mov', '.m4v', '.mts']
@@ -32,6 +35,7 @@ class OrganizePictures:
             source_directory: str,
             destination_directory: str,
             extensions: list = None,
+            media_type: str = None,
             dry_run: bool = False,
             cleanup: bool = False,
             verbose: bool = False,
@@ -39,11 +43,19 @@ class OrganizePictures:
         self.logger = logger
         self.source_dir = source_directory
         self.dest_dir = destination_directory
+        self.media_type = media_type
         self.dry_run = dry_run
         self.cleanup = cleanup
         self.verbose = verbose
 
-        self.extensions = self.IMG_EXTS + self.VID_EXTS if extensions is None else extensions
+        self.extensions = extensions
+        if self.extensions is None:
+            if media_type is not None:
+                self.extensions = MEDIA_TYPES.get(media_type)
+            else:
+                self.extensions = []
+                for exts in MEDIA_TYPES.values():
+                    self.extensions += exts
 
     @staticmethod
     def _get_file_ext(file):
@@ -77,27 +89,32 @@ class OrganizePictures:
                 hash_md5.update(chunk)
         return hash_md5.hexdigest()
 
-    def get_files(self, path: str):
+    def _get_files(self, path: str):
         files = []
         paths = glob(f"{path}/*")
         for file in paths:
             if os.path.isfile(file):
                 ext = self._get_file_ext(file)
-                if ext.lower() in self.extensions:
+                ext_lower = ext.lower()
+                if ext_lower in self.extensions:
+                    add = True
+                    if self.media_type is not None and ext_lower not in MEDIA_TYPES.get(self.media_type):
+                        add = False
+                    if add:
+                        files.append(file)
                     files.append(file)
             elif os.path.isdir(file):
-                files += self.get_files(file)
+                files += self._get_files(file)
         return files
 
-    def get_date_taken(self, _file: str) -> datetime:
+    def _get_date_taken(self, _file: str) -> datetime:
         date_time_obj = None
         ext = self._get_file_ext(_file).lower()
-        if ext in self.VID_EXTS:
+        if ext in MEDIA_TYPES.get('video'):
             media_info = MediaInfo.parse(_file)
             for track in media_info.tracks:
                 if track.track_type in ['Video', 'General']:
                     if track.encoded_date is not None:
-                        print(track.encoded_date)
                         date_time_obj = datetime.strptime(track.encoded_date, "%Z %Y-%m-%d %H:%M:%S")
                         _fromtz = pytz.timezone(track.encoded_date[0:track.encoded_date.find(" ")])
                         _totz = pytz.timezone('US/Mountain')
@@ -106,7 +123,7 @@ class OrganizePictures:
                     if track.recorded_date is not None:
                         date_time_obj = datetime.strptime(track.recorded_date, "%Y-%m-%d %H:%M:%S%z")
                         break
-        elif ext in self.IMG_EXTS:
+        elif ext in MEDIA_TYPES.get('image'):
             json_file = self._get_json_file(_file)
             if os.path.isfile(json_file):
                 date_time_obj = datetime.fromtimestamp(
@@ -126,7 +143,7 @@ class OrganizePictures:
 
         return date_time_obj
 
-    def get_new_fileinfo(self, _file: str, _date: datetime):
+    def _get_new_fileinfo(self, _file: str, _date: datetime):
         _ext = self._get_file_ext(_file).lower()
         _year = _date.strftime("%Y")
         _month = _date.strftime("%b")
@@ -162,7 +179,7 @@ class OrganizePictures:
             self.logger.warning(f"""Source file does not match existing destination file:
     Source: {_file}
     Destination: {_new_file_info['path']}""")
-            if _ext in self.VID_EXTS:
+            if _ext in MEDIA_TYPES.get('video'):
                 _media_info = MediaInfo.parse(_new_file_info['path'])
                 for _track in _media_info.tracks:
                     if hasattr(_track, 'comment') and _track.comment is not None:
@@ -173,7 +190,7 @@ class OrganizePictures:
 
             # increment 1 second and try again
             new_dt = _date + timedelta(seconds=1)
-            return self.get_new_fileinfo(_file, new_dt)
+            return self._get_new_fileinfo(_file, new_dt)
 
         self.logger.info(f"""Source file matches existing destination file:
     Source: {_file}
@@ -181,15 +198,15 @@ class OrganizePictures:
         return None
 
     def run(self):
-        files = self.get_files(self.source_dir)
+        files = self._get_files(self.source_dir)
         for file in files:
             moved = False
             json_file = self._get_json_file(file)
-            date_taken = self.get_date_taken(file)
+            date_taken = self._get_date_taken(file)
             if date_taken is not None:
-                new_file_info = self.get_new_fileinfo(file, date_taken)
+                new_file_info = self._get_new_fileinfo(file, date_taken)
                 if new_file_info is not None:
-                    if new_file_info['ext'] in self.VID_EXTS:
+                    if new_file_info['ext'] in MEDIA_TYPES.get('video'):
                         self.logger.info(f"Converting '{file}' to '{new_file_info['path']}'")
                         stream = ffmpeg.input(file)
                         stream = ffmpeg.output(

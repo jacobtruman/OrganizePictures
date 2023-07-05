@@ -4,7 +4,12 @@ import logging
 import sys
 import argparse
 
-from organize_pictures import OrganizePictures
+from organize_pictures import OrganizePictures, MEDIA_TYPES
+
+
+extensions = []
+for exts in MEDIA_TYPES.values():
+    extensions += [ext.replace(".", "") for ext in exts]
 
 
 def extensions_list_str(values):
@@ -39,7 +44,7 @@ def parse_args():
     parser.add_argument(
         '-e', '--extensions',
         dest='extensions',
-        help="File extensions to process",
+        help=f"Comma separated list of file extensions to process ({', '.join(extensions)})",
         default=None,
         type=extensions_list_str,
     )
@@ -52,6 +57,14 @@ def parse_args():
     )
 
     parser.add_argument(
+        '-t', '--media_type',
+        dest='media_type',
+        help=f"The type of media to process ({', '.join(MEDIA_TYPES)})",
+        default=None,
+        type=str.lower,
+    )
+
+    parser.add_argument(
         '-c', '--cleanup',
         action='store_true',
         dest='cleanup',
@@ -60,6 +73,9 @@ def parse_args():
     )
 
     args = parser.parse_args()
+
+    if args.media_type is not None and args.media_type not in MEDIA_TYPES:
+        parser.error(f"Invalid media type specified ({args.media_type})\nMust be one of: {', '.join(MEDIA_TYPES)})")
 
     return args
 
@@ -90,6 +106,7 @@ def main():
         logger=logger,
         source_directory=args.source_dir,
         destination_directory=args.destination_dir,
+        media_type=args.media_type,
         extensions=args.extensions,
         cleanup=args.cleanup,
         verbose=args.verbose,
