@@ -102,7 +102,6 @@ class OrganizePictures:
                         add = False
                     if add:
                         files.append(file)
-                    files.append(file)
             elif os.path.isdir(file):
                 files += self._get_files(file)
         return files
