@@ -70,7 +70,6 @@ class OrganizePictures:
             base_file = _file[:start]
             file_num = _file[start + 1:end]
             _file = f"{base_file}{ext}({file_num})"
-            print(_file)
         return f"{_file}.json"
 
     @staticmethod
@@ -142,14 +141,36 @@ class OrganizePictures:
 
         return date_time_obj
 
+    def _convert_video(self, _file: str, _new_file: str):
+        converted = False
+        self.logger.info(f"Converting '{_file}' to '{_new_file}'")
+        stream = ffmpeg.input(_file)
+        stream = ffmpeg.output(
+            stream,
+            _new_file,
+            acodec="aac",
+            vcodec="h264",
+            map_metadata=0,
+            metadata=f"comment=Converted {_file} to {_new_file}",
+            loglevel="verbose" if self.verbose else "quiet"
+        )
+        _, err = ffmpeg.run(stream)
+        if err is None:
+            self.logger.info(f"Successfully converted '{_file}' to '{_new_file}'")
+            converted = True
+        else:
+            self.logger.error(f"Failed to convert '{_file}' to '{_new_file}'")
+        return converted
+
     def _get_new_fileinfo(self, _file: str, _date: datetime):
-        _ext = self._get_file_ext(_file).lower()
+        _ext = self._get_file_ext(_file)
+        _ext_lower = _ext.lower()
         _year = _date.strftime("%Y")
         _month = _date.strftime("%b")
         _dir = f"{self.dest_dir}/{_year}/{_month}"
-        _filename = f"{_date.strftime(self.FILENAME_DATE_FORMAT)}{_ext}"
+        _filename = f"{_date.strftime(self.FILENAME_DATE_FORMAT)}{_ext_lower}"
         _new_file_info = {
-            'ext': _ext,
+            'ext': _ext_lower,
             'dir': _dir,
             'filename': _filename,
             'path': f"{_dir}/{_filename}",
@@ -160,12 +181,18 @@ class OrganizePictures:
             json_filename = self._get_json_file(_filename)
             _new_file_info['json_filename'] = json_filename
             _new_file_info['json_path'] = f"{_dir}/{json_filename}"
-        if _ext in self.IMG_CONVERT_EXTS:
-            _new_file_info['convert_path'] = f"{_dir}/{_filename.replace(_ext, self.PREFERRED_IMAGE_EXT)}"
-        if _ext in self.VID_CONVERT_EXTS:
-            _new_file_info['path'] = f"{_dir}/{_filename.replace(_ext, self.PREFERRED_VIDEO_EXT)}"
-        if _ext in self.IMG_CHANGE_EXTS:
-            _new_file_info['path'] = f"{_dir}/{_filename.replace(_ext, self.PREFERRED_IMAGE_EXT)}"
+
+        image_animation = _file.replace(_ext, '.MP4')
+        if self.media_type == 'image' and os.path.isfile(image_animation):
+            _new_file_info['animation_source'] = image_animation
+            _new_file_info['animation_dest'] = f"{_dir}/{_filename.replace(_ext_lower, self.PREFERRED_VIDEO_EXT)}"
+
+        if _ext_lower in self.IMG_CONVERT_EXTS:
+            _new_file_info['convert_path'] = f"{_dir}/{_filename.replace(_ext_lower, self.PREFERRED_IMAGE_EXT)}"
+        if _ext_lower in self.VID_CONVERT_EXTS:
+            _new_file_info['path'] = f"{_dir}/{_filename.replace(_ext_lower, self.PREFERRED_VIDEO_EXT)}"
+        if _ext_lower in self.IMG_CHANGE_EXTS:
+            _new_file_info['path'] = f"{_dir}/{_filename.replace(_ext_lower, self.PREFERRED_IMAGE_EXT)}"
 
         if not os.path.isdir(_new_file_info['dir']):
             self.logger.warning(f"Destination path does not exist, creating: {_new_file_info['dir']}")
@@ -178,7 +205,7 @@ class OrganizePictures:
             self.logger.warning(f"""Source file does not match existing destination file:
     Source: {_file}
     Destination: {_new_file_info['path']}""")
-            if _ext in MEDIA_TYPES.get('video'):
+            if _ext_lower in MEDIA_TYPES.get('video'):
                 _media_info = MediaInfo.parse(_new_file_info['path'])
                 for _track in _media_info.tracks:
                     if hasattr(_track, 'comment') and _track.comment is not None:
@@ -198,56 +225,51 @@ class OrganizePictures:
 
     def run(self):
         files = self._get_files(self.source_dir)
-        for file in files:
-            moved = False
-            json_file = self._get_json_file(file)
-            date_taken = self._get_date_taken(file)
+        for media_file in files:
+            cleanup_files = []
+            json_file = self._get_json_file(media_file)
+            date_taken = self._get_date_taken(media_file)
             if date_taken is not None:
-                new_file_info = self._get_new_fileinfo(file, date_taken)
+                new_file_info = self._get_new_fileinfo(media_file, date_taken)
                 if new_file_info is not None:
                     if new_file_info['ext'] in MEDIA_TYPES.get('video'):
-                        self.logger.info(f"Converting '{file}' to '{new_file_info['path']}'")
-                        stream = ffmpeg.input(file)
-                        stream = ffmpeg.output(
-                            stream,
-                            new_file_info['path'],
-                            acodec="aac",
-                            vcodec="h264",
-                            map_metadata=0,
-                            metadata=f"comment=Converted {file} to {new_file_info['path']}",
-                            loglevel="verbose" if self.verbose else "quiet"
-                        )
-                        _, err = ffmpeg.run(stream)
-                        if err is None:
-                            self.logger.info(f"Successfully converted '{file}' to '{new_file_info['path']}'")
-                            moved = True
-                        else:
-                            self.logger.error(f"Failed to convert '{file}' to '{new_file_info['path']}'")
+                        if self._convert_video(media_file, new_file_info['path']):
+                            cleanup_files.append(media_file)
                     else:
                         try:
-                            self.logger.info(f"Moving file:\n\tSource: {file}\n\tDestination: {new_file_info['path']}")
-                            shutil.copyfile(file, new_file_info['path'])
-                            moved = True
+                            self.logger.info(
+                                f"Moving file:\n\tSource: {media_file}\n\tDestination: {new_file_info['path']}"
+                            )
+                            shutil.copyfile(media_file, new_file_info['path'])
+                            cleanup_files.append(media_file)
                             if new_file_info.get('json_filename') is not None:
                                 self.logger.info(
                                     f"Moving file:\n\tSource: {json_file}\n\tDestination: {new_file_info['json_path']}")
                                 shutil.copyfile(json_file, new_file_info['json_path'])
+                                cleanup_files.append(json_file)
                             if new_file_info.get('convert_path') is not None:
                                 self.logger.debug(
-                                    f"Converting file:\n\tSource: {file}\n\tDestination: {new_file_info['convert_path']}"
+                                    f"Converting file:\n"
+                                    f"\tSource: {media_file}\n\tDestination: {new_file_info['convert_path']}"
                                 )
-                                image = Image.open(file)
+                                image = Image.open(media_file)
                                 image.convert('RGB').save(new_file_info['convert_path'])
+                                cleanup_files.append(media_file)
+                            if "animation_source" in new_file_info:
+                                if self._convert_video(
+                                        new_file_info['animation_source'],
+                                        new_file_info['animation_dest']
+                                ):
+                                    cleanup_files.append(new_file_info['animation_source'])
                         except shutil.Error as exc:
-                            self.logger.error(f"Failed to move file: {file}\n{exc}")
+                            self.logger.error(f"Failed to move file: {media_file}\n{exc}")
                 else:
                     # file is already moved
-                    moved = True
-            if moved and self.cleanup:
-                self.logger.info(f"Deleting file: {file}")
-                os.remove(file)
-                if os.path.isfile(json_file):
-                    self.logger.info(f"Deleting JSON file: {file}")
-                    os.remove(json_file)
+                    cleanup_files.append(media_file)
+
+            if cleanup_files and self.cleanup:
+                for cleanup_file in cleanup_files:
+                    self.logger.info(f"Deleting file: {cleanup_file}")
+                    os.remove(cleanup_file)
 
         return True
