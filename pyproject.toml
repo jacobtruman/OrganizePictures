@@ -3,7 +3,7 @@ requires = ["setuptools", "wheel"]
 
 [project]
 name = 'OrganizePictures'
-version = '0.2.6'
+version = '0.2.7'
 description='A tool for organizing pictures into folders by date.'
 
 authors = [
@@ -16,6 +16,7 @@ dependencies = [
     "pymediainfo>=6.0.1",
     "ffmpeg-python>=0.2.0",
     "pillow==9.5.0",
+    "pyheif>=0.7.1",
 ]
 
 requires-python = ">=3.7, <4"
