@@ -42,6 +42,14 @@ def parse_args():
         help=f"Pattern to use for image date. Ex: {ENCODED_DATE_FORMAT.replace('%', '%%')}",
     )
 
+    parser.add_argument(
+        '-c', '--cleanup',
+        action='store_true',
+        dest='cleanup',
+        help='Cleanup source file after successful run',
+        default=False,
+    )
+
     args = parser.parse_args()
 
     return args
@@ -78,6 +86,8 @@ def main():
     if err is not None:
         print(err)
         sys.exit(1)
+    elif args.cleanup:
+        os.remove(args.image)
 
 
 if __name__ == '__main__':

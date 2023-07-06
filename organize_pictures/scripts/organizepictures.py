@@ -75,7 +75,7 @@ def parse_args():
         '-c', '--cleanup',
         action='store_true',
         dest='cleanup',
-        help='Cleanup source directory after successful run',
+        help='Cleanup source file(s) after successful run',
         default=False,
     )
 
