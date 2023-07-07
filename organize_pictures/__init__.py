@@ -23,6 +23,7 @@ MEDIA_TYPES = {
 class OrganizePictures:
     FILENAME_DATE_FORMAT = "%Y-%m-%d_%H'%M'%S"
     ENCODED_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+    PIEXIF_DATE_FORMAT = '%Y:%m:%d %H:%M:%S'
     IMG_CONVERT_EXTS = ['.heic']
     IMG_CHANGE_EXTS = ['.jpeg']
     VID_CONVERT_EXTS = ['.mpg', '.mov', '.m4v', '.mts', '.mkv']
@@ -39,6 +40,7 @@ class OrganizePictures:
             media_type: str = None,
             dry_run: bool = False,
             cleanup: bool = False,
+            sub_dirs: bool = True,
             verbose: bool = False,
     ):
         self.logger = logger
@@ -47,6 +49,7 @@ class OrganizePictures:
         self.media_type = media_type
         self.dry_run = dry_run
         self.cleanup = cleanup
+        self.sub_dirs = sub_dirs
         self.verbose = verbose
 
         self.extensions = extensions
@@ -132,7 +135,7 @@ class OrganizePictures:
                     exif_dict = piexif.load(_file)
                     for tag, value in exif_dict['Exif'].items():
                         if "DateTimeDigitized" in piexif.TAGS['Exif'][tag]["name"]:
-                            date_time_obj = datetime.strptime(value.decode(), '%Y:%m:%d %H:%M:%S')
+                            date_time_obj = datetime.strptime(value.decode(), self.PIEXIF_DATE_FORMAT)
                             break
                 except piexif._exceptions.InvalidImageDataError:
                     self.logger.error(f'Unable to get exif data for file: {_file}')
@@ -233,19 +236,38 @@ class OrganizePictures:
                 return image_animation
         return None
 
+    def _update_file_date(self, _file, _date: datetime):
+        try:
+            new_date = _date.strftime(self.PIEXIF_DATE_FORMAT)
+            image = Image.open(_file)
+
+            exif_dict = piexif.load(_file)
+            if exif_dict["Exif"][piexif.ExifIFD.DateTimeDigitized] != new_date:
+                self.logger.debug(f"Updating date digitized for {_file}")
+                exif_dict["Exif"][piexif.ExifIFD.DateTimeDigitized] = new_date
+                exif_bytes = piexif.dump(exif_dict)
+                image.save(_file, exif=exif_bytes)
+            else:
+                self.logger.debug(f"Exif date already matches for {_file}")
+        except Exception as exc:
+            self.logger.error(f"Failed to update file date for {_file}: {exc}")
+
     def _get_new_fileinfo(self, _file: str, _date: datetime):
         _ext = self._get_file_ext(_file)
         _ext_lower = _ext.lower()
         _year = _date.strftime("%Y")
         _month = _date.strftime("%b")
-        _dir = f"{self.dest_dir}/{_year}/{_month}"
+        _dir = self.dest_dir
+        if self.sub_dirs:
+            _dir += f"/{_year}/{_month}"
+
         _filename = f"{_date.strftime(self.FILENAME_DATE_FORMAT)}{_ext_lower}"
         _new_file_info = {
             'ext': _ext_lower,
             'dir': _dir,
             'filename': _filename,
             'path': f"{_dir}/{_filename}",
-            'date_encoded': _date.strftime(self.ENCODED_DATE_FORMAT)
+            'date_encoded': _date
         }
         json_file = self._get_json_file(_file)
         if os.path.isfile(json_file):
@@ -277,6 +299,7 @@ class OrganizePictures:
         else:
             # increment 1 second and try again
             new_dt = _date + timedelta(seconds=1)
+            self._update_file_date(_file, new_dt)
             return self._get_new_fileinfo(_file, new_dt)
 
     def run(self):
@@ -300,6 +323,8 @@ class OrganizePictures:
                                 if not self._convert_image(media_file, new_file_info['convert_path']):
                                     self.logger.error(f"Failed to convert image: {media_file}")
                                     continue
+                            # Need to work out issues with this before enabling
+                            # self._update_file_date(media_file, new_file_info['date_encoded'])
                             shutil.copyfile(media_file, new_file_info['path'])
                             cleanup_files.append(media_file)
                             if new_file_info.get('json_filename') is not None:
