@@ -52,6 +52,8 @@ class OrganizePictures:
         self.sub_dirs = sub_dirs
         self.verbose = verbose
 
+        self.results = {"moved": 0, "duplicate": 0, "failed": 0, "deleted": 0}
+
         self.extensions = extensions
         if self.extensions is None:
             if media_type is not None:
@@ -163,6 +165,7 @@ class OrganizePictures:
         )
         _, err = ffmpeg.run(stream)
         if err is None:
+            self.results['moved'] += 1
             self.logger.info(f"Successfully converted '{_file}' to '{_new_file}'")
             converted = True
         else:
@@ -194,6 +197,7 @@ class OrganizePictures:
         except Exception as exc:
             self.logger.error(f"Failed second conversion attempt via {method}: {source_file}\n{exc}")
             return False
+        self.results['moved'] += 1
         self.logger.debug(
             f"Successfully converted file via {method}:\n\tSource: {source_file}\n\tDestination: {dest_file}"
         )
@@ -204,6 +208,7 @@ class OrganizePictures:
         # assume source file exists, ensure dest file exists
         if os.path.isfile(dest_file):
             if self._md5(source_file) == self._md5(dest_file):
+                self.results['duplicate'] += 1
                 matches = True
                 self.logger.debug(f"""Source file matches existing destination file:
                             Source: {source_file}
@@ -219,6 +224,7 @@ class OrganizePictures:
                     for _track in _media_info.tracks:
                         if hasattr(_track, 'comment') and _track.comment is not None:
                             if "Converted" in _track.comment:
+                                self.results['duplicate'] += 1
                                 self.logger.info(f"Video file already converted: {source_file}")
                                 self.logger.debug(f"\t{_track.comment}")
                                 matches = True
@@ -327,11 +333,13 @@ class OrganizePictures:
                             # Need to work out issues with this before enabling
                             # self._update_file_date(media_file, new_file_info['date_encoded'])
                             shutil.copyfile(media_file, new_file_info['path'])
+                            self.results['moved'] += 1
                             cleanup_files.append(media_file)
                             if new_file_info.get('json_filename') is not None:
                                 self.logger.info(
                                     f"Moving file:\n\tSource: {json_file}\n\tDestination: {new_file_info['json_path']}")
                                 shutil.copyfile(json_file, new_file_info['json_path'])
+                                self.results['moved'] += 1
                                 cleanup_files.append(json_file)
                             if "animation_source" in new_file_info:
                                 if self._media_file_matches(
@@ -343,6 +351,7 @@ class OrganizePictures:
                                 ):
                                     cleanup_files.append(new_file_info['animation_source'])
                         except shutil.Error as exc:
+                            self.results['failed'] += 1
                             self.logger.error(f"Failed to move file: {media_file}\n{exc}")
                 else:
                     # file is already moved
@@ -350,7 +359,8 @@ class OrganizePictures:
 
             if cleanup_files and self.cleanup:
                 for cleanup_file in cleanup_files:
+                    self.results['deleted'] += 1
                     self.logger.info(f"Deleting file: {cleanup_file}")
                     os.remove(cleanup_file)
 
-        return True
+        return self.results
