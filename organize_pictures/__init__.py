@@ -202,16 +202,16 @@ class OrganizePictures:
         if os.path.isfile(dest_file):
             if self._md5(source_file) == self._md5(dest_file):
                 matches = True
-                self.logger.warning(f"""Source file matches existing destination file:
+                self.logger.debug(f"""Source file matches existing destination file:
                             Source: {source_file}
                             Destination: {dest_file}""")
             else:
-                self.logger.warning(f"""Source file does not match existing destination file:
+                self.logger.debug(f"""Source file does not match existing destination file:
                             Source: {source_file}
                             Destination: {dest_file}""")
                 source_file_ext = self._get_file_ext(source_file).lower()
                 if source_file_ext in MEDIA_TYPES.get('video'):
-                    self.logger.warning(f"Checking if video file has already been converted")
+                    self.logger.debug(f"Checking if video file has already been converted")
                     _media_info = MediaInfo.parse(dest_file)
                     for _track in _media_info.tracks:
                         if hasattr(_track, 'comment') and _track.comment is not None:
@@ -266,12 +266,12 @@ class OrganizePictures:
             _new_file_info['path'] = f"{_dir}/{_filename.replace(_ext_lower, self.PREFERRED_IMAGE_EXT)}"
 
         if not os.path.isdir(_new_file_info['dir']):
-            self.logger.warning(f"Destination path does not exist, creating: {_new_file_info['dir']}")
+            self.logger.debug(f"Destination path does not exist, creating: {_new_file_info['dir']}")
             os.makedirs(_new_file_info['dir'])
         if not os.path.exists(_new_file_info['path']):
             return _new_file_info
 
-        self.logger.warning(f"Destination file already exists: {_new_file_info['path']}")
+        self.logger.debug(f"Destination file already exists: {_new_file_info['path']}")
         if self._media_file_matches(_file, _new_file_info['path']):
             return None
         else:
