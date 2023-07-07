@@ -299,7 +299,8 @@ class OrganizePictures:
         else:
             # increment 1 second and try again
             new_dt = _date + timedelta(seconds=1)
-            self._update_file_date(_file, new_dt)
+            # Need to work out issues with this before enabling
+            # self._update_file_date(_file, new_dt)
             return self._get_new_fileinfo(_file, new_dt)
 
     def run(self):
