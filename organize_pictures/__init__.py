@@ -16,7 +16,7 @@ import pyheif
 
 MEDIA_TYPES = {
     'image': ['.jpg', '.jpeg', '.png', '.heic'],
-    'video': ['.mp4', '.mpg', '.mov', '.m4v', '.mts'],
+    'video': ['.mp4', '.mpg', '.mov', '.m4v', '.mts', '.mkv'],
 }
 
 
@@ -25,7 +25,7 @@ class OrganizePictures:
     ENCODED_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
     IMG_CONVERT_EXTS = ['.heic']
     IMG_CHANGE_EXTS = ['.jpeg']
-    VID_CONVERT_EXTS = ['.mpg', '.mov', '.m4v', '.mts']
+    VID_CONVERT_EXTS = ['.mpg', '.mov', '.m4v', '.mts', '.mkv']
     PREFERRED_IMAGE_EXT = '.jpg'
     PREFERRED_VIDEO_EXT = '.mp4'
 
