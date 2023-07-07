@@ -110,11 +110,11 @@ def main():
         log_level = logging.DEBUG
     else:
         log_level = logging.INFO
-    file_handle.setLevel(log_level)
+    file_handle.setLevel(logging.DEBUG)
     file_handle.setFormatter(formatter)
 
     stream_handle = logging.StreamHandler()
-    stream_handle.setLevel(logging.DEBUG)
+    stream_handle.setLevel(log_level)
     stream_handle.setFormatter(formatter)
 
     logger.addHandler(file_handle)
