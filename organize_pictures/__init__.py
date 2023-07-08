@@ -24,6 +24,10 @@ class OrganizePictures:
     FILENAME_DATE_FORMAT = "%Y-%m-%d_%H'%M'%S"
     ENCODED_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
     PIEXIF_DATE_FORMAT = '%Y:%m:%d %H:%M:%S'
+    VIDEO_DATE_FORMATS = {
+        "default": "%Z %Y-%m-%d %H:%M:%S",
+        ".mkv": "%Z %Y-%m-%dT%H:%M:%SZ",
+    }
     IMG_CONVERT_EXTS = ['.heic']
     IMG_CHANGE_EXTS = ['.jpeg']
     VID_CONVERT_EXTS = ['.mpg', '.mov', '.m4v', '.mts', '.mkv']
@@ -69,6 +73,7 @@ class OrganizePictures:
         return ext
 
     def _get_json_file(self, _file):
+        """Get the json file name for the given file"""
         if "(" in _file and ")" in _file:
             ext = self._get_file_ext(_file)
             start = _file.find("(")
@@ -119,7 +124,9 @@ class OrganizePictures:
             for track in media_info.tracks:
                 if track.track_type in ['Video', 'General']:
                     if track.encoded_date is not None:
-                        date_time_obj = datetime.strptime(track.encoded_date, "%Z %Y-%m-%d %H:%M:%S")
+                        date_time_obj = datetime.strptime(
+                            track.encoded_date, self.VIDEO_DATE_FORMATS.get(ext, 'default')
+                        )
                         _fromtz = pytz.timezone(track.encoded_date[0:track.encoded_date.find(" ")])
                         _totz = pytz.timezone('US/Mountain')
                         date_time_obj = datetime.astimezone(date_time_obj.replace(tzinfo=_fromtz), _totz)
@@ -335,12 +342,6 @@ class OrganizePictures:
                             shutil.copyfile(media_file, new_file_info['path'])
                             self.results['moved'] += 1
                             cleanup_files.append(media_file)
-                            if new_file_info.get('json_filename') is not None:
-                                self.logger.info(
-                                    f"Moving file:\n\tSource: {json_file}\n\tDestination: {new_file_info['json_path']}")
-                                shutil.copyfile(json_file, new_file_info['json_path'])
-                                self.results['moved'] += 1
-                                cleanup_files.append(json_file)
                             if "animation_source" in new_file_info:
                                 if self._media_file_matches(
                                         new_file_info['animation_source'],
@@ -353,6 +354,13 @@ class OrganizePictures:
                         except shutil.Error as exc:
                             self.results['failed'] += 1
                             self.logger.error(f"Failed to move file: {media_file}\n{exc}")
+
+                    if new_file_info.get('json_filename') is not None:
+                        self.logger.info(
+                            f"Moving file:\n\tSource: {json_file}\n\tDestination: {new_file_info['json_path']}")
+                        shutil.copyfile(json_file, new_file_info['json_path'])
+                        self.results['moved'] += 1
+                        cleanup_files.append(json_file)
                 else:
                     # file is already moved
                     cleanup_files.append(media_file)
