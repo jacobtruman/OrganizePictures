@@ -66,7 +66,7 @@ def get_file_ext(file):
     return ext
 
 
-def get_json_file(_file):
+def get_json_file(_file, check: bool = True):
     """Get the json file name for the given file"""
     if "(" in _file and ")" in _file:
         ext = get_file_ext(_file)
@@ -75,7 +75,10 @@ def get_json_file(_file):
         base_file = _file[:start]
         file_num = _file[start + 1:end]
         _file = f"{base_file}{ext}({file_num})"
-    return f"{_file}.json" if os.path.isfile(f"{_file}.json") else None
+    json_file = f"{_file}.json"
+    if check and not os.path.isfile(json_file):
+        return None
+    return json_file
 
 
 def main():
@@ -114,7 +117,7 @@ def main():
     else:
         json_file = get_json_file(args.image)
         if json_file is not None:
-            new_json_file = get_json_file(new_image)
+            new_json_file = get_json_file(new_image, check=False)
             print(f"Copying {json_file} to {new_json_file}")
             shutil.copyfile(json_file, new_json_file)
             cleanup_files.append(json_file)
