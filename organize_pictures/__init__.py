@@ -328,7 +328,7 @@ class OrganizePictures:
             date_taken = self._get_date_taken(media_file)
             if date_taken is not None:
                 new_file_info = self._get_new_fileinfo(media_file, date_taken)
-                if new_file_info.get('duplicate'):
+                if not new_file_info.get('duplicate'):
                     if new_file_info['ext'] in MEDIA_TYPES.get('video'):
                         if self._convert_video(media_file, new_file_info['path']):
                             cleanup_files.append(media_file)
