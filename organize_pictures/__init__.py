@@ -125,7 +125,10 @@ class OrganizePictures:
                 if track.track_type in ['Video', 'General']:
                     if track.encoded_date is not None:
                         date_time_obj = datetime.strptime(
-                            track.encoded_date, self.VIDEO_DATE_FORMATS.get(ext, 'default')
+                            track.encoded_date, self.VIDEO_DATE_FORMATS.get(
+                                ext,
+                                self.VIDEO_DATE_FORMATS.get("default")
+                            )
                         )
                         _fromtz = pytz.timezone(track.encoded_date[0:track.encoded_date.find(" ")])
                         _totz = pytz.timezone('US/Mountain')
