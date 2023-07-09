@@ -366,7 +366,10 @@ class OrganizePictures:
                         cleanup_files.append(json_file)
                 else:
                     # file is already moved
+                    self.logger.info(f"File already moved: {media_file}")
                     cleanup_files.append(media_file)
+                    if json_file is not None and os.path.isfile(json_file):
+                        cleanup_files.append(json_file)
 
             if cleanup_files and self.cleanup:
                 for cleanup_file in cleanup_files:
