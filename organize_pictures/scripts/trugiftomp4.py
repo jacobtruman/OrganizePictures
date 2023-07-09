@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import os
 import sys
+import shutil
 import argparse
 import ffmpeg
 from datetime import datetime
@@ -52,11 +53,34 @@ def parse_args():
 
     args = parser.parse_args()
 
+    if not os.path.isfile(args.image):
+        print(f"ERROR: {args.image} is not a file")
+        parser.print_help()
+        sys.exit(1)
+
     return args
+
+
+def get_file_ext(file):
+    _, ext = os.path.splitext(os.path.basename(file))
+    return ext
+
+
+def get_json_file(_file):
+    """Get the json file name for the given file"""
+    if "(" in _file and ")" in _file:
+        ext = get_file_ext(_file)
+        start = _file.find("(")
+        end = _file.find(")")
+        base_file = _file[:start]
+        file_num = _file[start + 1:end]
+        _file = f"{base_file}{ext}({file_num})"
+    return f"{_file}.json" if os.path.isfile(f"{_file}.json") else None
 
 
 def main():
     args = parse_args()
+    cleanup_files = [args.image]
 
     new_image = args.image.replace(".gif", ".mp4")
 
@@ -72,6 +96,7 @@ def main():
 
     image_date = date_time_obj.strftime(ENCODED_DATE_FORMAT)
 
+    print(f"Converting {args.image} to {new_image}")
     stream = ffmpeg.input(args.image)
     stream = ffmpeg.output(
         stream,
@@ -86,8 +111,17 @@ def main():
     if err is not None:
         print(err)
         sys.exit(1)
-    elif args.cleanup:
-        os.remove(args.image)
+    else:
+        json_file = get_json_file(args.image)
+        if json_file is not None:
+            new_json_file = get_json_file(new_image)
+            print(f"Copying {json_file} to {new_json_file}")
+            shutil.copyfile(json_file, new_json_file)
+            cleanup_files.append(json_file)
+        if args.cleanup:
+            for media_file in cleanup_files:
+                print(f"Removing {media_file}")
+                os.remove(media_file)
 
 
 if __name__ == '__main__':
