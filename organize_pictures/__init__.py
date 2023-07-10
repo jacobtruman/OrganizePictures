@@ -160,9 +160,9 @@ class OrganizePictures:
     def _convert_video(self, _file: str, _new_file: str):
         converted = False
         if os.path.isfile(_new_file):
-            self.logger.info(f"Skipping conversion of '{_file}' to '{_new_file}' as it already exists")
+            self.logger.info(f"Skipping conversion of \"{_file}\" to \"{_new_file}\" as it already exists")
             converted = True
-        self.logger.info(f"Converting '{_file}' to '{_new_file}'")
+        self.logger.info(f"Converting \"{_file}\" to \"{_new_file}\"")
         stream = ffmpeg.input(_file)
         stream = ffmpeg.output(
             stream,
@@ -176,10 +176,10 @@ class OrganizePictures:
         _, err = ffmpeg.run(stream)
         if err is None:
             self.results['moved'] += 1
-            self.logger.info(f"Successfully converted '{_file}' to '{_new_file}'")
+            self.logger.info(f"Successfully converted \"{_file}\" to \"{_new_file}\"")
             converted = True
         else:
-            self.logger.error(f"Failed to convert '{_file}' to '{_new_file}'")
+            self.logger.error(f"Failed to convert \"{_file}\" to \"{_new_file}\"")
         return converted
 
     def _convert_image(self, source_file: str, dest_file: str):
@@ -323,7 +323,7 @@ class OrganizePictures:
         files = self._get_files(self.source_dir)
         for index, media_file in enumerate(files, start=1):
             self.logger.info(
-                f"Processing file {index} of {len(files)}:\n\t{media_file}"
+                f"Processing file {index} / {len(files)}:\n\t{media_file}"
             )
             cleanup_files = []
             date_taken = self._get_date_taken(media_file)
