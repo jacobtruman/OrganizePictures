@@ -162,14 +162,20 @@ class OrganizePictures:
         if date_time_obj is None:
             date_time_obj = datetime.strptime(time.ctime(os.path.getmtime(_file)), '%c')
 
-        return datetime(
-            year=(date_time_obj.year + self.offset.get("Y")),
-            month=(date_time_obj.month + self.offset.get("M")),
-            day=(date_time_obj.day + self.offset.get("D")),
-            hour=(date_time_obj.hour + self.offset.get("h")),
-            minute=(date_time_obj.minute + self.offset.get("m")),
-            second=(date_time_obj.second + self.offset.get("s")),
-        )
+        if self.offset == self.init_offset():
+            # update date object with offset
+            date_time_obj = datetime(
+                year=(date_time_obj.year + self.offset.get("Y")),
+                month=(date_time_obj.month + self.offset.get("M")),
+                day=(date_time_obj.day + self.offset.get("D")),
+                hour=(date_time_obj.hour + self.offset.get("h")),
+                minute=(date_time_obj.minute + self.offset.get("m")),
+                second=(date_time_obj.second + self.offset.get("s")),
+            )
+            # update file with updated date time
+            self._update_file_date(_file, date_time_obj)
+
+        return date_time_obj
 
     def _convert_video(self, _file: str, _new_file: str):
         converted = False
