@@ -162,7 +162,7 @@ class OrganizePictures:
         if date_time_obj is None:
             date_time_obj = datetime.strptime(time.ctime(os.path.getmtime(_file)), '%c')
 
-        if self.offset == self.init_offset():
+        if self.offset != self.init_offset():
             # update date object with offset
             date_time_obj = datetime(
                 year=(date_time_obj.year + self.offset.get("Y")),
