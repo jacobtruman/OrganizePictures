@@ -10,7 +10,7 @@ exclude = ["docs*", "tests*"]
 
 [project]
 name = 'OrganizePictures'
-version = '0.5.4'
+version = '0.5.5'
 description='A tool for organizing pictures into folders by date.'
 
 authors = [
@@ -23,7 +23,7 @@ dependencies = [
     "pymediainfo>=6.0.1",
     "ffmpeg-python>=0.2.0",
     "pillow==9.5.0",
-    "pyheif>=0.7.1",
+    "pillow_heif>=0.16.0",
 ]
 
 requires-python = ">=3.7, <4"

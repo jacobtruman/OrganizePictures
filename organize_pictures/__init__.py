@@ -12,7 +12,9 @@ import piexif
 from pymediainfo import MediaInfo
 import ffmpeg
 from PIL import Image, UnidentifiedImageError
-import pyheif
+from pillow_heif import register_heif_opener
+
+register_heif_opener()
 
 MEDIA_TYPES = {
     'image': ['.jpg', '.jpeg', '.png', '.heic'],
