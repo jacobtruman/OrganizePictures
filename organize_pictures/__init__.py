@@ -212,8 +212,8 @@ class OrganizePictures:
         except UnidentifiedImageError as pilexc:
             if image_ext != ".heic":
                 return False
-            method = "pyheif"
             self.logger.error(f"Failed first conversion attempt via {method}: {source_file}\n{pilexc}")
+            method = "pyheif"
             heif_file = pyheif.read(source_file)
             image = Image.frombytes(
                 heif_file.mode,
