@@ -28,8 +28,8 @@ class OrganizePictures:
     ENCODED_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
     PIEXIF_DATE_FORMAT = '%Y:%m:%d %H:%M:%S'
     VIDEO_DATE_FORMATS = {
-        "default": "%Z %Y-%m-%d %H:%M:%S",
-        ".mkv": "%Z %Y-%m-%dT%H:%M:%SZ",
+        "default": "%Y-%m-%d %H:%M:%S %Z",
+        # ".mkv": "%Y-%m-%dT%H:%M:%SZ %Z",
     }
     IMG_CONVERT_EXTS = ['.heic']
     IMG_CHANGE_EXTS = ['.jpeg']
@@ -139,6 +139,7 @@ class OrganizePictures:
                                 self.VIDEO_DATE_FORMATS.get("default")
                             )
                         )
+                        print(track.encoded_date, date_time_obj)
                         _fromtz = pytz.timezone(track.encoded_date[0:track.encoded_date.find(" ")])
                         _totz = pytz.timezone('US/Mountain')
                         date_time_obj = datetime.astimezone(date_time_obj.replace(tzinfo=_fromtz), _totz)
