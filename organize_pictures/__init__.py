@@ -8,11 +8,12 @@ from glob import glob
 import time
 
 import pytz
-import piexif
+from exiftool import ExifToolHelper
 from pymediainfo import MediaInfo
 import ffmpeg
 from PIL import Image, UnidentifiedImageError
 from pillow_heif import register_heif_opener
+import xml.etree.ElementTree as ET
 
 register_heif_opener()
 
@@ -26,7 +27,7 @@ OFFSET_CHARS = 'YMDhms'
 class OrganizePictures:
     FILENAME_DATE_FORMAT = "%Y-%m-%d_%H'%M'%S"
     ENCODED_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
-    PIEXIF_DATE_FORMAT = '%Y:%m:%d %H:%M:%S'
+    M4_DATE_FORMAT = '%Y/%m/%d %H:%M:%S,%f'
     VIDEO_DATE_FORMATS = {
         "default": "%Y-%m-%d %H:%M:%S %Z",
         # ".mkv": "%Y-%m-%dT%H:%M:%SZ %Z",
@@ -36,6 +37,7 @@ class OrganizePictures:
     VID_CONVERT_EXTS = ['.mpg', '.mov', '.m4v', '.mts', '.mkv']
     PREFERRED_IMAGE_EXT = '.jpg'
     PREFERRED_VIDEO_EXT = '.mp4'
+    EXIF_DATE_FIELDS = ['DateTimeOriginal', 'CreateDate', 'DateTimeDigitized']
 
     # pylint: disable=too-many-arguments
     def __init__(
@@ -156,15 +158,27 @@ class OrganizePictures:
                     int(self._load_json_file(json_file).get('photoTakenTime', {}).get('timestamp')))
             else:
                 try:
-                    exif_dict = piexif.load(_file)
-                    for tag, value in exif_dict['Exif'].items():
-                        if "DateTimeDigitized" in piexif.TAGS['Exif'][tag]["name"]:
-                            date_time_obj = datetime.strptime(value.decode(), self.PIEXIF_DATE_FORMAT)
-                            break
-                except piexif._exceptions.InvalidImageDataError:
-                    self.logger.error(f'Unable to get exif data for file: {_file}')
+                    with ExifToolHelper() as eth:
+                        metadata = (eth.get_metadata(_file) or [])[0]
+                        for exif_date_field in self.EXIF_DATE_FIELDS:
+                            _date_field = f"EXIF:{exif_date_field}"
+                            if _date_field in metadata:
+                                self.logger.info(f"Using date field: {_date_field}")
+                                date_time_obj = datetime.strptime(
+                                    metadata.get(_date_field), self.ENCODED_DATE_FORMAT
+                                )
+                                break
+                        if date_time_obj is None and "PNG:XMLcommagicmemoriesm4" in metadata:
+                            tree = ET.fromstring(metadata.get("PNG:XMLcommagicmemoriesm4"))
+                            if tree.attrib.get("creation") is not None:
+                                self.logger.info("Using m4 creation date")
+                                date_time_obj = datetime.strptime(tree.attrib.get("creation"), self.M4_DATE_FORMAT)
+                except Exception as exc:
+                    self.logger.error(f'Unable to get exif data for file: {_file}:\n{exc}')
+
         # if other dates are not found, use the file modified date
         if date_time_obj is None:
+            self.logger.info("Using file modified date as date taken")
             date_time_obj = datetime.strptime(time.ctime(os.path.getmtime(_file)), '%c')
 
         if self.offset != self.init_offset():
@@ -180,8 +194,6 @@ class OrganizePictures:
                 minute=(date_time_obj.minute + (self.offset.get("m") * multiplier)),
                 second=(date_time_obj.second + (self.offset.get("s") * multiplier)),
             )
-            # update file with updated date time
-            self._update_file_date(_file, date_time_obj)
 
         return date_time_obj
 
@@ -282,18 +294,19 @@ class OrganizePictures:
 
     def _update_file_date(self, _file, _date: datetime):
         try:
-            new_date = _date.strftime(self.PIEXIF_DATE_FORMAT)
+            new_date = _date.strftime(self.ENCODED_DATE_FORMAT)
             image = Image.open(_file)
 
-            exif_dict = piexif.load(_file)
-            if exif_dict["Exif"][piexif.ExifIFD.DateTimeDigitized] != new_date:
-                self.logger.debug(f"Updating date digitized for {_file}")
-                exif_dict["Exif"][piexif.ExifIFD.DateTimeOriginal] = new_date
-                exif_dict["Exif"][piexif.ExifIFD.DateTimeDigitized] = new_date
-                exif_bytes = piexif.dump(exif_dict)
-                image.save(_file, exif=exif_bytes)
-            else:
-                self.logger.debug(f"Exif date already matches for {_file}")
+            with ExifToolHelper() as eth:
+                metadata = (eth.get_metadata(_file) or [])[0]
+                if self.EXIF_DATE_FIELDS[0] not in metadata or metadata.get(self.EXIF_DATE_FIELDS[0]) != new_date:
+                    eth.set_tags(
+                        [_file],
+                        tags={field: _date for field in self.EXIF_DATE_FIELDS},
+                        params=["-P", "-overwrite_original"]
+                    )
+                else:
+                    self.logger.debug(f"Exif date already matches for {_file}")
         except Exception as exc:
             self.logger.error(f"Failed to update file date for {_file}: {exc}")
 
@@ -344,8 +357,6 @@ class OrganizePictures:
         else:
             # increment 1 second and try again
             new_dt = _date + timedelta(seconds=1)
-            # Need to work out issues with this before enabling
-            # self._update_file_date(_file, new_dt)
             return self._get_new_fileinfo(_file, new_dt)
 
     def run(self):
@@ -371,9 +382,9 @@ class OrganizePictures:
                                 if not self._convert_image(media_file, new_file_info['convert_path']):
                                     self.logger.error(f"Failed to convert image: {media_file}")
                                     continue
-                            # Need to work out issues with this before enabling
-                            # self._update_file_date(media_file, new_file_info['date_encoded'])
                             shutil.copyfile(media_file, new_file_info['path'])
+                            # update file date of new file
+                            self._update_file_date(new_file_info['path'], new_file_info['date_encoded'])
                             self.results['moved'] += 1
                             cleanup_files.append(media_file)
                             if "animation_source" in new_file_info:
