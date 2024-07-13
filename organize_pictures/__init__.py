@@ -199,6 +199,7 @@ class OrganizePictures:
         for _field, _value in _tags.items():
             if isinstance(_value, str):
                 _value = _value.encode('ascii', 'ignore').decode('ascii')
+                _tags[_field] = _value
             exif_field = f"EXIF:{_field}"
             if exif_field in _metadata and _metadata.get(exif_field) == _value:
                 del_tags.append(_field)
