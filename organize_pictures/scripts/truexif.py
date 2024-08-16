@@ -14,7 +14,7 @@ def parse_args():
     Parse command line arguments.
     """
     parser = argparse.ArgumentParser(
-        description='Run OrganizePictures Functions',
+        description='Run Piexif Functions',
     )
 
     parser.add_argument(
@@ -27,6 +27,14 @@ def parse_args():
         dest='tags',
         help="Comma separated list of tags to display",
         type=list_str,
+    )
+
+    parser.add_argument(
+        '-d', '--decode',
+        action='store_true',
+        dest='decode',
+        help='Decode exif data',
+        default=False,
     )
 
     args = parser.parse_args()
@@ -43,6 +51,8 @@ def main():
         if args.tags is not None and piexif.TAGS['Exif'][tag]["name"].lower() not in args.tags:
             print_tag = False
         if print_tag:
+            if args.decode:
+                value = value.decode('utf-8')
             print(piexif.TAGS['Exif'][tag]["name"], value)
 
 
