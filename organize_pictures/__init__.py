@@ -192,18 +192,22 @@ class OrganizePictures:
                         else:
                             self.logger.error(f"Failed to convert '{file}' to '{new_file_info['path']}'")
                     else:
-                        self.logger.info(f"Moving file:\n\tSource: {file}\n\tDestination: {new_file_info['path']}")
-                        shutil.copyfile(file, new_file_info['path'])
-                        if new_file_info.get('json_filename') is not None:
-                            self.logger.info(
-                                f"Moving file:\n\tSource: {json_file}\n\tDestination: {new_file_info['json_path']}")
-                            shutil.copyfile(json_file, new_file_info['json_path'])
-                        if new_file_info.get('convert_path') is not None:
-                            self.logger.debug(
-                                f"Converting file:\n\tSource: {file}\n\tDestination: {new_file_info['convert_path']}"
-                            )
-                            image = Image.open(file)
-                            image.convert('RGB').save(new_file_info['convert_path'])
+                        try:
+                            self.logger.info(f"Moving file:\n\tSource: {file}\n\tDestination: {new_file_info['path']}")
+                            shutil.copyfile(file, new_file_info['path'])
+                            moved = True
+                            if new_file_info.get('json_filename') is not None:
+                                self.logger.info(
+                                    f"Moving file:\n\tSource: {json_file}\n\tDestination: {new_file_info['json_path']}")
+                                shutil.copyfile(json_file, new_file_info['json_path'])
+                            if new_file_info.get('convert_path') is not None:
+                                self.logger.debug(
+                                    f"Converting file:\n\tSource: {file}\n\tDestination: {new_file_info['convert_path']}"
+                                )
+                                image = Image.open(file)
+                                image.convert('RGB').save(new_file_info['convert_path'])
+                        except shutil.Error as exc:
+                            self.logger.error(f"Failed to move file: {file}\n{exc}")
                 else:
                     # file is already moved
                     moved = True
