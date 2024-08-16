@@ -133,8 +133,9 @@ def main():
 
     result = organizer.run()
 
-    if not result:
-        sys.exit(1)
+    if result:
+        for item, count in result.items():
+            print(f"{item}: {count}")
 
 
 if __name__ == '__main__':
