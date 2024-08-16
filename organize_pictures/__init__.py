@@ -172,9 +172,7 @@ class OrganizePictures:
         return self._check_db_for_image_hash(image.hash)
         # return self._check_db_for_image_hash(self._get_image_hash(image_path))
 
-    def _insert_image_hash(self, image_path: str | dict):
-        if isinstance(image_path, dict):
-            image_path = os.path.abspath(f"{image_path.get('dir')}/{image_path.get('filename')}")
+    def _insert_image_hash(self, image_path: str):
         if not os.path.isfile(image_path):
             self.logger.error(f"Image path does not exist: {image_path}")
             return False
@@ -425,7 +423,7 @@ class OrganizePictures:
                             cleanup_files += copied.keys()
                             self.results['moved'] += len(copied)
                             # add to db
-                            self._insert_image_hash(new_file_info)
+                            self._insert_image_hash(copied[media_file])
                         except shutil.Error as exc:
                             self.results['failed'] += 1
                             self.logger.error(f"Failed to move file: {media_file}\n{exc}")
