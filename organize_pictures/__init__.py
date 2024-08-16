@@ -174,7 +174,7 @@ class OrganizePictures:
 
     def _insert_image_hash(self, image_path: str | dict):
         if isinstance(image_path, dict):
-            image_path = os.path.abspath(f"{image_path.get('dir')/image_path.get('filename')}")
+            image_path = os.path.abspath(f"{image_path.get('dir')}/{image_path.get('filename')}")
         if not os.path.isfile(image_path):
             self.logger.error(f"Image path does not exist: {image_path}")
             return False
