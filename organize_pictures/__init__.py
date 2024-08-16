@@ -143,6 +143,9 @@ class OrganizePictures:
 
     def _convert_video(self, _file: str, _new_file: str):
         converted = False
+        if os.path.isfile(_new_file):
+            self.logger.info(f"Skipping conversion of '{_file}' to '{_new_file}' as it already exists")
+            converted = True
         self.logger.info(f"Converting '{_file}' to '{_new_file}'")
         stream = ffmpeg.input(_file)
         stream = ffmpeg.output(
@@ -161,6 +164,32 @@ class OrganizePictures:
         else:
             self.logger.error(f"Failed to convert '{_file}' to '{_new_file}'")
         return converted
+
+    def _media_file_matches(self, source_file: str, dest_file: str):
+        matches = False
+        # assume source file exists, ensure dest file exists
+        if os.path.isfile(dest_file):
+            if self._md5(source_file) == self._md5(dest_file):
+                matches = True
+                self.logger.warning(f"""Source file matches existing destination file:
+                            Source: {source_file}
+                            Destination: {dest_file}""")
+            else:
+                self.logger.warning(f"""Source file does not match existing destination file:
+                            Source: {source_file}
+                            Destination: {dest_file}""")
+                source_file_ext = self._get_file_ext(source_file).lower()
+                if source_file_ext in MEDIA_TYPES.get('video'):
+                    self.logger.warning(f"Checking if video file has already been converted")
+                    _media_info = MediaInfo.parse(dest_file)
+                    for _track in _media_info.tracks:
+                        if hasattr(_track, 'comment') and _track.comment is not None:
+                            if "Converted" in _track.comment:
+                                self.logger.info(f"Video file already converted: {source_file}")
+                                self.logger.debug(f"\t{_track.comment}")
+                                matches = True
+                                break
+        return matches
 
     @staticmethod
     def _find_image_animation(_file: str, _ext: str):
@@ -212,27 +241,12 @@ class OrganizePictures:
             return _new_file_info
 
         self.logger.warning(f"Destination file already exists: {_new_file_info['path']}")
-        if self._md5(_new_file_info['path']) != self._md5(_file):
-            self.logger.warning(f"""Source file does not match existing destination file:
-    Source: {_file}
-    Destination: {_new_file_info['path']}""")
-            if _ext_lower in MEDIA_TYPES.get('video'):
-                _media_info = MediaInfo.parse(_new_file_info['path'])
-                for _track in _media_info.tracks:
-                    if hasattr(_track, 'comment') and _track.comment is not None:
-                        if "Converted" in _track.comment:
-                            self.logger.info(f"File already converted: {_file}")
-                            self.logger.debug(f"\t{_track.comment}")
-                            return None
-
+        if self._media_file_matches(_file, _new_file_info['path']):
+            return None
+        else:
             # increment 1 second and try again
             new_dt = _date + timedelta(seconds=1)
             return self._get_new_fileinfo(_file, new_dt)
-
-        self.logger.info(f"""Source file matches existing destination file:
-    Source: {_file}
-    Destination: {_new_file_info['path']}""")
-        return None
 
     def run(self):
         files = self._get_files(self.source_dir)
@@ -266,7 +280,10 @@ class OrganizePictures:
                                 shutil.copyfile(json_file, new_file_info['json_path'])
                                 cleanup_files.append(json_file)
                             if "animation_source" in new_file_info:
-                                if self._convert_video(
+                                if self._media_file_matches(
+                                        new_file_info['animation_source'],
+                                        new_file_info['animation_dest']
+                                ) or self._convert_video(
                                         new_file_info['animation_source'],
                                         new_file_info['animation_dest']
                                 ):
