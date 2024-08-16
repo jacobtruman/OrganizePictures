@@ -170,7 +170,6 @@ class OrganizePictures:
 
     def _check_db_for_image_path_hash(self, image):
         return self._check_db_for_image_hash(image.hash)
-        # return self._check_db_for_image_hash(self._get_image_hash(image_path))
 
     def _insert_image_hash(self, image_path: str):
         if not os.path.isfile(image_path):
@@ -410,7 +409,7 @@ class OrganizePictures:
                     f"Processing file {index} / {len(files)}:\n\t{media_file}"
                 )
                 if self._check_db_for_image_path_hash(image):
-                    self.logger.debug(f"{media_file} Already in db")
+                    self.logger.debug(f"Hash for {media_file} already in db")
                     self.results['duplicate'] += 1
                     cleanup_files += image.files.values()
                     continue
@@ -440,8 +439,9 @@ class OrganizePictures:
 
         if cleanup_files and self.cleanup:
             for cleanup_file in cleanup_files:
-                self.results['deleted'] += 1
-                self.logger.info(f"Deleting file: {cleanup_file}")
-                os.remove(cleanup_file)
+                if cleanup_file:
+                    self.results['deleted'] += 1
+                    self.logger.info(f"Deleting file: {cleanup_file}")
+                    os.remove(cleanup_file)
 
         return self.results
