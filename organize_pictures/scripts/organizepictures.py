@@ -28,6 +28,7 @@ def parse_args():
         action='store_true',
         dest='verbose',
         help='Enable verbose logging',
+        default=False,
     )
 
     parser.add_argument(
@@ -84,6 +85,7 @@ def main():
         source_directory=args.source_dir,
         destination_directory=args.destination_dir,
         cleanup=args.cleanup,
+        verbose=args.verbose,
     )
 
     result = organizer.run()

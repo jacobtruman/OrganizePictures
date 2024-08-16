@@ -32,12 +32,14 @@ class OrganizePictures:
             destination_directory: str,
             dry_run: bool = False,
             cleanup: bool = False,
+            verbose: bool = False,
     ):
         self.logger = logger
         self.source_dir = source_directory
         self.dest_dir = destination_directory
         self.dry_run = dry_run
         self.cleanup = cleanup
+        self.verbose = verbose
 
         self.extensions = [".jpg", ".heic", ".mp4", ".mpg", ".mov"]
 
@@ -178,7 +180,7 @@ class OrganizePictures:
                             vcodec="h264",
                             map_metadata=0,
                             metadata=f"comment=Converted {file} to {new_file_info['path']}",
-                            loglevel="quiet"
+                            loglevel="verbose" if self.verbose else "quiet"
                         )
                         _, err = ffmpeg.run(stream)
                         if err is None:
