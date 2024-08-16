@@ -18,6 +18,7 @@ MEDIA_TYPES = {
     'image': ['.jpg', '.jpeg', '.png', '.heic'],
     'video': ['.mp4', '.mpg', '.mov', '.m4v', '.mts', '.mkv'],
 }
+OFFSET_CHARS = 'YMDhms'
 
 
 class OrganizePictures:
@@ -45,6 +46,7 @@ class OrganizePictures:
             dry_run: bool = False,
             cleanup: bool = False,
             sub_dirs: bool = True,
+            offset: dict = None,
             verbose: bool = False,
     ):
         self.logger = logger
@@ -54,6 +56,7 @@ class OrganizePictures:
         self.dry_run = dry_run
         self.cleanup = cleanup
         self.sub_dirs = sub_dirs
+        self.offset = offset or self.init_offset()
         self.verbose = verbose
 
         self.results = {"moved": 0, "duplicate": 0, "failed": 0, "deleted": 0}
@@ -71,6 +74,10 @@ class OrganizePictures:
     def _get_file_ext(file):
         _, ext = os.path.splitext(os.path.basename(file))
         return ext
+
+    @staticmethod
+    def init_offset():
+        return dict.fromkeys(list(OFFSET_CHARS), 0)
 
     def _get_json_file(self, _file):
         """Get the json file name for the given file"""
@@ -155,7 +162,14 @@ class OrganizePictures:
         if date_time_obj is None:
             date_time_obj = datetime.strptime(time.ctime(os.path.getmtime(_file)), '%c')
 
-        return date_time_obj
+        return datetime(
+            year=(date_time_obj.year + self.offset.get("Y")),
+            month=(date_time_obj.month + self.offset.get("M")),
+            day=(date_time_obj.day + self.offset.get("D")),
+            hour=(date_time_obj.hour + self.offset.get("h")),
+            minute=(date_time_obj.minute + self.offset.get("m")),
+            second=(date_time_obj.second + self.offset.get("s")),
+        )
 
     def _convert_video(self, _file: str, _new_file: str):
         converted = False

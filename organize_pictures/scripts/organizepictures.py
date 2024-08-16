@@ -2,10 +2,10 @@
 
 import logging
 import os
-import sys
 import argparse
+import re
 
-from organize_pictures import OrganizePictures, MEDIA_TYPES
+from organize_pictures import OrganizePictures, MEDIA_TYPES, OFFSET_CHARS
 
 
 extensions = []
@@ -21,6 +21,17 @@ def extensions_list_str(values):
 
 def resolve_path(path):
     return os.path.abspath(os.path.expanduser(path))
+
+
+def parse_offset(offset):
+    offsets = OrganizePictures.init_offset()
+    ofsset_options = re.findall(r"\d{1,3}[A-Za-z]{1}", offset)
+    for offset_option in ofsset_options:
+        if offset_option[-1] in OFFSET_CHARS:
+            offsets[offset_option[-1]] = int(offset_option[:-1])
+        else:
+            logging.error(f"Invalid offset option: {offset_option}")
+    return offsets
 
 
 def parse_args():
@@ -87,6 +98,14 @@ def parse_args():
         default=True,
     )
 
+    parser.add_argument(
+        '-o', '--offset',
+        dest='offset',
+        help='Time offset (0Y0M0D0h0m0s)',
+        default=None,
+        type=parse_offset,
+    )
+
     args = parser.parse_args()
 
     if args.media_type is not None and args.media_type not in MEDIA_TYPES:
@@ -128,6 +147,7 @@ def main():
         extensions=args.extensions,
         cleanup=args.cleanup,
         sub_dirs=args.sub_dirs,
+        offset=args.offset,
         verbose=args.verbose,
     )
 
