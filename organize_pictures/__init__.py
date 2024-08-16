@@ -11,7 +11,7 @@ import pytz
 import piexif
 from pymediainfo import MediaInfo
 import ffmpeg
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 
 MEDIA_TYPES = {
     'image': ['.jpg', '.jpeg', '.png', '.heic'],
@@ -162,6 +162,17 @@ class OrganizePictures:
             self.logger.error(f"Failed to convert '{_file}' to '{_new_file}'")
         return converted
 
+    @staticmethod
+    def _find_image_animation(_file: str, _ext: str):
+        for ext in MEDIA_TYPES.get('video'):
+            image_animation = _file.replace(_ext, ext)
+            if os.path.isfile(image_animation):
+                return image_animation
+            image_animation = _file.replace(_ext, ext.upper())
+            if os.path.isfile(image_animation):
+                return image_animation
+        return None
+
     def _get_new_fileinfo(self, _file: str, _date: datetime):
         _ext = self._get_file_ext(_file)
         _ext_lower = _ext.lower()
@@ -182,8 +193,8 @@ class OrganizePictures:
             _new_file_info['json_filename'] = json_filename
             _new_file_info['json_path'] = f"{_dir}/{json_filename}"
 
-        image_animation = _file.replace(_ext, '.MP4')
-        if self.media_type == 'image' and os.path.isfile(image_animation):
+        image_animation = self._find_image_animation(_file, _ext_lower)
+        if self.media_type == 'image' and image_animation is not None:
             _new_file_info['animation_source'] = image_animation
             _new_file_info['animation_dest'] = f"{_dir}/{_filename.replace(_ext_lower, self.PREFERRED_VIDEO_EXT)}"
 
@@ -240,13 +251,6 @@ class OrganizePictures:
                             self.logger.info(
                                 f"Moving file:\n\tSource: {media_file}\n\tDestination: {new_file_info['path']}"
                             )
-                            shutil.copyfile(media_file, new_file_info['path'])
-                            cleanup_files.append(media_file)
-                            if new_file_info.get('json_filename') is not None:
-                                self.logger.info(
-                                    f"Moving file:\n\tSource: {json_file}\n\tDestination: {new_file_info['json_path']}")
-                                shutil.copyfile(json_file, new_file_info['json_path'])
-                                cleanup_files.append(json_file)
                             if new_file_info.get('convert_path') is not None:
                                 self.logger.debug(
                                     f"Converting file:\n"
@@ -255,12 +259,21 @@ class OrganizePictures:
                                 image = Image.open(media_file)
                                 image.convert('RGB').save(new_file_info['convert_path'])
                                 cleanup_files.append(media_file)
+                            shutil.copyfile(media_file, new_file_info['path'])
+                            cleanup_files.append(media_file)
+                            if new_file_info.get('json_filename') is not None:
+                                self.logger.info(
+                                    f"Moving file:\n\tSource: {json_file}\n\tDestination: {new_file_info['json_path']}")
+                                shutil.copyfile(json_file, new_file_info['json_path'])
+                                cleanup_files.append(json_file)
                             if "animation_source" in new_file_info:
                                 if self._convert_video(
                                         new_file_info['animation_source'],
                                         new_file_info['animation_dest']
                                 ):
                                     cleanup_files.append(new_file_info['animation_source'])
+                        except UnidentifiedImageError as exc:
+                            self.logger.error(f"Failed to convert file: {media_file}\n{exc}")
                         except shutil.Error as exc:
                             self.logger.error(f"Failed to move file: {media_file}\n{exc}")
                 else:
