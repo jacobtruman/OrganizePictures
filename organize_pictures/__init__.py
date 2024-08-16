@@ -17,9 +17,9 @@ from PIL import Image
 class OrganizePictures:
     FILENAME_DATE_FORMAT = "%Y-%m-%d_%H'%M'%S"
     ENCODED_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
-    IMG_EXTS = ['.jpg', '.png', '.heic']
+    IMG_EXTS = ['.jpg', '.jpeg', '.png', '.heic']
     VID_EXTS = ['.mp4', '.mpg', '.mov']
-    IMG_CONVERT_EXTS = ['.heic']
+    IMG_CONVERT_EXTS = ['.heic', '.jpeg']
     VID_CONVERT_EXTS = ['.mpg', '.mov']
     PREFERRED_IMAGE_EXT = '.jpg'
     PREFERRED_VIDEO_EXT = '.mp4'
