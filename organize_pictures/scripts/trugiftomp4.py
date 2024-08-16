@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import os
 import sys
+import json
 import shutil
 import argparse
 import ffmpeg
@@ -81,8 +82,17 @@ def get_json_file(_file, check: bool = True):
     return json_file
 
 
+def load_json_file(_json_file: str):
+    parsed_json = None
+    if os.path.isfile(_json_file):
+        with open(_json_file, encoding="utf-8") as user_file:
+            parsed_json = json.load(user_file)
+    return parsed_json
+
+
 def main():
     args = parse_args()
+    json_file = get_json_file(args.image)
     cleanup_files = [args.image]
 
     new_image = args.image.replace(".gif", ".mp4")
@@ -93,9 +103,13 @@ def main():
         else:
             date_time_obj = datetime.strptime(args.date, FILENAME_DATE_FORMAT)
     else:
-        image_basename = os.path.basename(args.image)
-        image_filename = image_basename[0: image_basename.rfind(".")]
-        date_time_obj = datetime.strptime(image_filename[0:image_filename.rfind("-")], FILENAME_DATE_FORMAT)
+        if os.path.isfile(json_file):
+            date_time_obj = datetime.fromtimestamp(
+                int(load_json_file(json_file).get('photoTakenTime', {}).get('timestamp')))
+        else:
+            image_basename = os.path.basename(args.image)
+            image_filename = image_basename[0: image_basename.rfind(".")]
+            date_time_obj = datetime.strptime(image_filename[0:image_filename.rfind("-")], FILENAME_DATE_FORMAT)
 
     image_date = date_time_obj.strftime(ENCODED_DATE_FORMAT)
 
@@ -115,7 +129,6 @@ def main():
         print(err)
         sys.exit(1)
     else:
-        json_file = get_json_file(args.image)
         if json_file is not None:
             new_json_file = get_json_file(new_image, check=False)
             print(f"Copying {json_file} to {new_json_file}")
