@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import logging
+import os
 import sys
 import argparse
 
@@ -16,6 +17,10 @@ def extensions_list_str(values):
     if values is None:
         return None
     return [ext if ext.startswith(".") else f".{ext}" for ext in values.split(',')]
+
+
+def resolve_path(path):
+    return os.path.abspath(os.path.expanduser(path))
 
 
 def parse_args():
@@ -39,6 +44,7 @@ def parse_args():
         dest='source_dir',
         help="Media source directory",
         default="./pictures",
+        type=resolve_path,
     )
 
     parser.add_argument(
@@ -54,6 +60,7 @@ def parse_args():
         dest='destination_dir',
         help="Media destination directory",
         default="./pictures/renamed",
+        type=resolve_path,
     )
 
     parser.add_argument(
@@ -76,6 +83,9 @@ def parse_args():
 
     if args.media_type is not None and args.media_type not in MEDIA_TYPES:
         parser.error(f"Invalid media type specified ({args.media_type})\nMust be one of: {', '.join(MEDIA_TYPES)})")
+
+    if args.source_dir == args.destination_dir:
+        parser.error("Source and destination directories cannot be the same")
 
     return args
 
