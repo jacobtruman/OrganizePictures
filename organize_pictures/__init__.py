@@ -287,9 +287,8 @@ class OrganizePictures:
         }
         json_file = self._get_json_file(_file)
         if os.path.isfile(json_file):
-            json_filename = self._get_json_file(_filename)
-            _new_file_info['json_filename'] = json_filename
-            _new_file_info['json_path'] = f"{_dir}/{json_filename}"
+            _new_file_info['json_file'] = json_file
+            _new_file_info['new_json_file'] = f"{_dir}/{self._get_json_file(_filename)}"
 
         image_animation = self._find_image_animation(_file, _ext)
         if self.media_type == 'image' and image_animation is not None:
@@ -324,7 +323,6 @@ class OrganizePictures:
         files = self._get_files(self.source_dir)
         for media_file in files:
             cleanup_files = []
-            json_file = self._get_json_file(media_file)
             date_taken = self._get_date_taken(media_file)
             if date_taken is not None:
                 new_file_info = self._get_new_fileinfo(media_file, date_taken)
@@ -359,18 +357,19 @@ class OrganizePictures:
                             self.results['failed'] += 1
                             self.logger.error(f"Failed to move file: {media_file}\n{exc}")
 
-                    if new_file_info.get('json_filename') is not None:
+                    if new_file_info.get('json_file') is not None:
                         self.logger.info(
-                            f"Moving file:\n\tSource: {json_file}\n\tDestination: {new_file_info['json_path']}")
-                        shutil.copyfile(json_file, new_file_info['json_path'])
+                            f"Moving file:\n\tSource: {new_file_info.get('json_file')}\n\t"
+                            f"Destination: {new_file_info.get('new_json_file')}")
+                        shutil.copyfile(new_file_info['json_file'], new_file_info['new_json_file'])
                         self.results['moved'] += 1
-                        cleanup_files.append(json_file)
+                        cleanup_files.append(new_file_info['json_file'])
                 else:
                     # file is already moved
                     self.logger.info(f"File already moved: {media_file}")
                     cleanup_files.append(media_file)
-                    if new_file_info.get('json_filename'):
-                        cleanup_files.append(new_file_info.get('json_filename'))
+                    if new_file_info.get('json_file'):
+                        cleanup_files.append(new_file_info.get('json_file'))
                     if new_file_info.get('animation_source'):
                         cleanup_files.append(new_file_info.get('animation_source'))
 
