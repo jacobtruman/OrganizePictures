@@ -1,9 +1,16 @@
 [build-system]
 requires = ["setuptools", "wheel"]
 
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+include = ["organize_pictures*"]
+exclude = ["docs*", "tests*"]
+
 [project]
 name = 'OrganizePictures'
-version = '0.3.0'
+version = '0.3.1'
 description='A tool for organizing pictures into folders by date.'
 
 authors = [

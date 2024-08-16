@@ -48,19 +48,19 @@ def parse_args():
     )
 
     parser.add_argument(
-        '-e', '--extensions',
-        dest='extensions',
-        help=f"Comma separated list of file extensions to process ({', '.join(extensions)})",
-        default=None,
-        type=extensions_list_str,
-    )
-
-    parser.add_argument(
         '-d', '--destination_dir',
         dest='destination_dir',
         help="Media destination directory",
         default="./pictures/renamed",
         type=resolve_path,
+    )
+
+    parser.add_argument(
+        '-e', '--extensions',
+        dest='extensions',
+        help=f"Comma separated list of file extensions to process ({', '.join(extensions)})",
+        default=None,
+        type=extensions_list_str,
     )
 
     parser.add_argument(
@@ -77,6 +77,14 @@ def parse_args():
         dest='cleanup',
         help='Cleanup source file(s) after successful run',
         default=False,
+    )
+
+    parser.add_argument(
+        '-b', '--sub_dirs',
+        action='store_false',
+        dest='sub_dirs',
+        help='Create year/month subdirectories',
+        default=True,
     )
 
     args = parser.parse_args()
@@ -119,6 +127,7 @@ def main():
         media_type=args.media_type,
         extensions=args.extensions,
         cleanup=args.cleanup,
+        sub_dirs=args.sub_dirs,
         verbose=args.verbose,
     )
 
