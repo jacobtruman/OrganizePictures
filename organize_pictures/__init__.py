@@ -15,8 +15,8 @@ import ffmpeg
 from PIL import Image, UnidentifiedImageError
 from pillow_heif import register_heif_opener
 import xml.etree.ElementTree as ET
-import xmltodict
 import tempfile
+import xmltodict
 from dict2xml import dict2xml
 
 import atexit

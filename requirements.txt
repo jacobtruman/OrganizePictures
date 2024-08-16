@@ -4,6 +4,8 @@
 #
 #    pip-compile
 #
+dict2xml==1.7.5
+    # via -r requirements.in
 ffmpeg-python==0.2.0
     # via -r requirements.in
 future==0.18.3
@@ -19,4 +21,6 @@ pyexiftool==0.5.6
 pymediainfo==6.1.0
     # via -r requirements.in
 pytz==2023.3
+    # via -r requirements.in
+xmltodict==0.13.0
     # via -r requirements.in
