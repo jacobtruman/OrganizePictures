@@ -193,7 +193,7 @@ class OrganizePictures:
             _new_file_info['json_filename'] = json_filename
             _new_file_info['json_path'] = f"{_dir}/{json_filename}"
 
-        image_animation = self._find_image_animation(_file, _ext_lower)
+        image_animation = self._find_image_animation(_file, _ext)
         if self.media_type == 'image' and image_animation is not None:
             _new_file_info['animation_source'] = image_animation
             _new_file_info['animation_dest'] = f"{_dir}/{_filename.replace(_ext_lower, self.PREFERRED_VIDEO_EXT)}"
