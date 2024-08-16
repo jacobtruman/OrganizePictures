@@ -140,7 +140,7 @@ class OrganizePictures:
                             )
                         )
                         print(track.encoded_date, date_time_obj)
-                        _fromtz = pytz.timezone(track.encoded_date[0:track.encoded_date.find(" ")])
+                        _fromtz = pytz.timezone(track.encoded_date.split(" ")[-1])
                         _totz = pytz.timezone('US/Mountain')
                         date_time_obj = datetime.astimezone(date_time_obj.replace(tzinfo=_fromtz), _totz)
                         break
@@ -393,7 +393,7 @@ class OrganizePictures:
                         cleanup_files.append(new_file_info['json_file'])
                 else:
                     # file is already moved
-                    self.logger.info(f"File already moved: {media_file}")
+                    self.logger.info(f"File already moved: {media_file} -> {new_file_info.get('path')}")
                     cleanup_files.append(media_file)
                     if new_file_info.get('json_file'):
                         cleanup_files.append(new_file_info.get('json_file'))
