@@ -18,10 +18,10 @@ class OrganizePictures:
     FILENAME_DATE_FORMAT = "%Y-%m-%d_%H'%M'%S"
     ENCODED_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
     IMG_EXTS = ['.jpg', '.jpeg', '.png', '.heic']
-    VID_EXTS = ['.mp4', '.mpg', '.mov']
+    VID_EXTS = ['.mp4', '.mpg', '.mov', '.m4v']
     IMG_CONVERT_EXTS = ['.heic']
     IMG_CHANGE_EXTS = ['.jpeg']
-    VID_CONVERT_EXTS = ['.mpg', '.mov']
+    VID_CONVERT_EXTS = ['.mpg', '.mov', '.m4v']
     PREFERRED_IMAGE_EXT = '.jpg'
     PREFERRED_VIDEO_EXT = '.mp4'
 
@@ -85,14 +85,14 @@ class OrganizePictures:
         if ext in self.VID_EXTS:
             media_info = MediaInfo.parse(_file)
             for track in media_info.tracks:
-                if track.track_type == 'Video':
-                    if hasattr(track, 'encoded_date') and track.encoded_date is not None:
-                        date_time_obj = datetime.strptime(track.encoded_date, "%Z %Y-%m-%d %H:%M:%S")
-                        _fromtz = pytz.timezone(track.encoded_date[0:track.encoded_date.find(" ")])
-                        _totz = pytz.timezone('US/Mountain')
-                        date_time_obj = datetime.astimezone(date_time_obj.replace(tzinfo=_fromtz), _totz)
-                    else:
-                        self.logger.error(f'encoded_date not found in track: {_file}')
+                print(_file)
+                print(track.track_type)
+                print(track.encoded_date)
+                if track.track_type in ['Video', 'General'] and track.encoded_date is not None:
+                    date_time_obj = datetime.strptime(track.encoded_date, "%Z %Y-%m-%d %H:%M:%S")
+                    _fromtz = pytz.timezone(track.encoded_date[0:track.encoded_date.find(" ")])
+                    _totz = pytz.timezone('US/Mountain')
+                    date_time_obj = datetime.astimezone(date_time_obj.replace(tzinfo=_fromtz), _totz)
                     break
         elif ext in self.IMG_EXTS:
             json_file = f"{_file}.json"
