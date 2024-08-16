@@ -44,6 +44,14 @@ def parse_args():
         default="./pictures/renamed",
     )
 
+    parser.add_argument(
+        '-c', '--cleanup',
+        action='store_true',
+        dest='cleanup',
+        help='Cleanup source directory after successful run',
+        default=False,
+    )
+
     args = parser.parse_args()
 
     return args
@@ -56,25 +64,26 @@ def main():
     logger.setLevel(logging.DEBUG)
     formatter = logging.Formatter('[ %(asctime)s ][ %(levelname)s ] %(message)s')
 
-    fh = logging.FileHandler(f"{__name__}.log")
+    file_handle = logging.FileHandler(f"{__name__}.log")
     if args.verbose:
         log_level = logging.DEBUG
     else:
         log_level = logging.INFO
-    fh.setLevel(log_level)
-    fh.setFormatter(formatter)
+    file_handle.setLevel(log_level)
+    file_handle.setFormatter(formatter)
 
-    ch = logging.StreamHandler()
-    ch.setLevel(logging.DEBUG)
-    ch.setFormatter(formatter)
+    stream_handle = logging.StreamHandler()
+    stream_handle.setLevel(logging.DEBUG)
+    stream_handle.setFormatter(formatter)
 
-    logger.addHandler(fh)
-    logger.addHandler(ch)
+    logger.addHandler(file_handle)
+    logger.addHandler(stream_handle)
 
     organizer = OrganizePictures(
         logger=logger,
         source_directory=args.source_dir,
-        destination_directory=args.destination_dir
+        destination_directory=args.destination_dir,
+        cleanup=args.cleanup,
     )
 
     result = organizer.run()
