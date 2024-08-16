@@ -258,7 +258,6 @@ class OrganizePictures:
                                 )
                                 image = Image.open(media_file)
                                 image.convert('RGB').save(new_file_info['convert_path'])
-                                cleanup_files.append(media_file)
                             shutil.copyfile(media_file, new_file_info['path'])
                             cleanup_files.append(media_file)
                             if new_file_info.get('json_filename') is not None:
