@@ -134,8 +134,9 @@ def main():
     result = organizer.run()
 
     if result:
+        logger.info("######### Results #########")
         for item, count in result.items():
-            print(f"{item}: {count}")
+            logger.info(f"{item}:\t{count}")
 
 
 if __name__ == '__main__':
