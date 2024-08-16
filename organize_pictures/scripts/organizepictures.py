@@ -92,10 +92,10 @@ def parse_args():
 
     parser.add_argument(
         '-b', '--sub_dirs',
-        action='store_false',
+        action='store_true',
         dest='sub_dirs',
         help='Create year/month subdirectories',
-        default=True,
+        default=False,
     )
 
     parser.add_argument(
