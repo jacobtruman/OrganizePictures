@@ -18,10 +18,10 @@ class OrganizePictures:
     FILENAME_DATE_FORMAT = "%Y-%m-%d_%H'%M'%S"
     ENCODED_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
     IMG_EXTS = ['.jpg', '.jpeg', '.png', '.heic']
-    VID_EXTS = ['.mp4', '.mpg', '.mov', '.m4v']
+    VID_EXTS = ['.mp4', '.mpg', '.mov', '.m4v', '.mts']
     IMG_CONVERT_EXTS = ['.heic']
     IMG_CHANGE_EXTS = ['.jpeg']
-    VID_CONVERT_EXTS = ['.mpg', '.mov', '.m4v']
+    VID_CONVERT_EXTS = ['.mpg', '.mov', '.m4v', '.mts']
     PREFERRED_IMAGE_EXT = '.jpg'
     PREFERRED_VIDEO_EXT = '.mp4'
 
@@ -95,12 +95,17 @@ class OrganizePictures:
         if ext in self.VID_EXTS:
             media_info = MediaInfo.parse(_file)
             for track in media_info.tracks:
-                if track.track_type in ['Video', 'General'] and track.encoded_date is not None:
-                    date_time_obj = datetime.strptime(track.encoded_date, "%Z %Y-%m-%d %H:%M:%S")
-                    _fromtz = pytz.timezone(track.encoded_date[0:track.encoded_date.find(" ")])
-                    _totz = pytz.timezone('US/Mountain')
-                    date_time_obj = datetime.astimezone(date_time_obj.replace(tzinfo=_fromtz), _totz)
-                    break
+                if track.track_type in ['Video', 'General']:
+                    if track.encoded_date is not None:
+                        print(track.encoded_date)
+                        date_time_obj = datetime.strptime(track.encoded_date, "%Z %Y-%m-%d %H:%M:%S")
+                        _fromtz = pytz.timezone(track.encoded_date[0:track.encoded_date.find(" ")])
+                        _totz = pytz.timezone('US/Mountain')
+                        date_time_obj = datetime.astimezone(date_time_obj.replace(tzinfo=_fromtz), _totz)
+                        break
+                    if track.recorded_date is not None:
+                        date_time_obj = datetime.strptime(track.recorded_date, "%Y-%m-%d %H:%M:%S%z")
+                        break
         elif ext in self.IMG_EXTS:
             json_file = self._get_json_file(_file)
             if os.path.isfile(json_file):
