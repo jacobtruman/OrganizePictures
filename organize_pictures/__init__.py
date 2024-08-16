@@ -17,8 +17,9 @@ from PIL import Image
 class OrganizePictures:
     FILENAME_DATE_FORMAT = "%Y-%m-%d_%H'%M'%S"
     ENCODED_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
-    IMG_EXTS = ['.jpg', '.heic']
-    VID_EXTS = ['.mp4', '.mpg']
+    IMG_EXTS = ['.jpg', '.png', '.heic']
+    IMG_EXTS = ['.png']
+    VID_EXTS = ['.mp4', '.mpg', '.mov']
     IMG_CONVERT_EXTS = ['.heic']
     VID_CONVERT_EXTS = ['.mpg', '.mov']
     PREFERRED_IMAGE_EXT = '.jpg'
@@ -41,7 +42,7 @@ class OrganizePictures:
         self.cleanup = cleanup
         self.verbose = verbose
 
-        self.extensions = [".jpg", ".heic", ".mp4", ".mpg", ".mov"]
+        self.extensions = self.IMG_EXTS + self.VID_EXTS
 
     @staticmethod
     def _get_file_ext(file):
