@@ -311,7 +311,8 @@ class OrganizePictures:
 
         self.logger.debug(f"Destination file already exists: {_new_file_info['path']}")
         if self._media_file_matches(_file, _new_file_info['path']):
-            return None
+            _new_file_info['duplicate'] = True
+            return _new_file_info
         else:
             # increment 1 second and try again
             new_dt = _date + timedelta(seconds=1)
@@ -327,7 +328,7 @@ class OrganizePictures:
             date_taken = self._get_date_taken(media_file)
             if date_taken is not None:
                 new_file_info = self._get_new_fileinfo(media_file, date_taken)
-                if new_file_info is not None:
+                if new_file_info.get('duplicate'):
                     if new_file_info['ext'] in MEDIA_TYPES.get('video'):
                         if self._convert_video(media_file, new_file_info['path']):
                             cleanup_files.append(media_file)
@@ -368,8 +369,10 @@ class OrganizePictures:
                     # file is already moved
                     self.logger.info(f"File already moved: {media_file}")
                     cleanup_files.append(media_file)
-                    if json_file is not None and os.path.isfile(json_file):
-                        cleanup_files.append(json_file)
+                    if new_file_info.get('json_filename'):
+                        cleanup_files.append(new_file_info.get('json_filename'))
+                    if new_file_info.get('animation_source'):
+                        cleanup_files.append(new_file_info.get('animation_source'))
 
             if cleanup_files and self.cleanup:
                 for cleanup_file in cleanup_files:
