@@ -104,7 +104,7 @@ class OrganizePictures:
                         files.append(file)
             elif os.path.isdir(file):
                 files += self._get_files(file)
-        return files
+        return sorted(files)
 
     def _get_date_taken(self, _file: str) -> datetime:
         date_time_obj = None
