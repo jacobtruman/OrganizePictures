@@ -14,6 +14,8 @@ import ffmpeg
 from PIL import Image, UnidentifiedImageError
 from pillow_heif import register_heif_opener
 import xml.etree.ElementTree as ET
+import xmltodict
+from dict2xml import dict2xml
 
 register_heif_opener()
 
@@ -37,7 +39,7 @@ class OrganizePictures:
     VID_CONVERT_EXTS = ['.mpg', '.mov', '.m4v', '.mts', '.mkv']
     PREFERRED_IMAGE_EXT = '.jpg'
     PREFERRED_VIDEO_EXT = '.mp4'
-    EXIF_DATE_FIELDS = ['DateTimeOriginal', 'CreateDate', 'DateTimeDigitized']
+    EXIF_DATE_FIELDS = ['DateTimeOriginal', 'CreateDate']
 
     # pylint: disable=too-many-arguments
     def __init__(
@@ -112,6 +114,86 @@ class OrganizePictures:
                 hash_md5.update(chunk)
         return hash_md5.hexdigest()
 
+    def _update_tags(self, _file, _tags, _metadata):
+        del_tags = []
+        for _field, _value in _tags.items():
+            exif_field = f"EXIF:{_field}"
+            if exif_field in _metadata and _metadata.get(exif_field) == _value:
+                del_tags.append(_field)
+        for _tag in del_tags:
+            del _tags[_tag]
+        if _tags:
+            self.logger.debug(f"Updating tags for {_file}\n{_tags}")
+            with ExifToolHelper() as _eth:
+                _eth.set_tags(
+                    [_file],
+                    tags=_tags,
+                    params=["-P", "-overwrite_original"]
+                )
+
+    def _write_json_data_to_image(self, _file, _json_file=None):
+        if _json_file is None:
+            _json_file = self._get_json_file(_file)
+        if os.path.isfile(_json_file):
+            with ExifToolHelper() as eth:
+                metadata = (eth.get_metadata(_file) or [])[0]
+            data = self._load_json_file(_json_file)
+            if data is not None:
+                tags = {}
+                if "photoTakenTime" in data:
+                    _date = datetime.fromtimestamp(
+                        int(data.get("photoTakenTime").get("timestamp"))
+                    ).strftime(self.ENCODED_DATE_FORMAT)
+                    for field in self.EXIF_DATE_FIELDS:
+                        tags[field] = _date
+                if "people" in data:
+                    user_comment = None
+                    people_dict = {"People": {"Person": [person.get("name") for person in data.get("people")]}}
+                    if "EXIF:UserComment" in metadata:
+                        user_comment = metadata.get("EXIF:UserComment")
+                    if user_comment:
+                        try:
+                            data_dict = xmltodict.parse(user_comment)
+                        except Exception:
+                            # if we can't parse the user comment, add existing comment as a note
+                            data_dict = {"UserComment": {"note": user_comment}}
+                        # make sure UserComment is at the root level
+                        if "UserComment" not in data_dict:
+                            data_dict["UserComment"] = data_dict
+                        # if people_comment is not in user_comment, add people_dict
+                        if dict2xml(people_dict, newlines=False) not in user_comment:
+                            data_dict["UserComment"].update(people_dict)
+                    else:
+                        data_dict = {"UserComment": people_dict}
+
+                    # convert user comment to xml and add to tags
+                    if "UserComment" in data_dict:
+                        tags["UserComment"] = dict2xml(data_dict, newlines=False)
+                if "geoDataExif" in data:
+                    lat = data.get("geoDataExif").get("latitude")
+                    lon = data.get("geoDataExif").get("longitude")
+                    alt = data.get("geoDataExif").get("altitude")
+                    if lat != 0 and lon != 0:
+                        # GPSLatitudeRef (S for negative, N for positive)
+                        if lat > 0:
+                            tags["GPSLatitude"] = lat
+                            tags["GPSLatitudeRef"] = "N"
+                        else:
+                            tags["GPSLatitude"] = -lat
+                            tags["GPSLatitudeRef"] = "S"
+                        # GPSLongitudeRef (W for negative, E for positive)
+                        if lon > 0:
+                            tags["GPSLongitude"] = lon
+                            tags["GPSLongitudeRef"] = "E"
+                        else:
+                            tags["GPSLongitude"] = -lon
+                            tags["GPSLongitudeRef"] = "W"
+                        tags["GPSAltitude"] = alt
+                        # GPSAltitudeRef (0 for above sea level, 1 for below sea level)
+                        tags["GPSAltitudeRef"] = 0 if alt > 0 else 1
+
+                    self._update_tags(_file, tags, metadata)
+
     def _get_files(self, path: str):
         files = []
         paths = glob(f"{path}/*")
@@ -152,29 +234,25 @@ class OrganizePictures:
                         date_time_obj = datetime.strptime(track.recorded_date, "%Y-%m-%d %H:%M:%S%z")
                         break
         elif ext in MEDIA_TYPES.get('image'):
-            json_file = self._get_json_file(_file)
-            if os.path.isfile(json_file):
-                date_time_obj = datetime.fromtimestamp(
-                    int(self._load_json_file(json_file).get('photoTakenTime', {}).get('timestamp')))
-            else:
-                try:
-                    with ExifToolHelper() as eth:
-                        metadata = (eth.get_metadata(_file) or [])[0]
-                        for exif_date_field in self.EXIF_DATE_FIELDS:
-                            _date_field = f"EXIF:{exif_date_field}"
-                            if _date_field in metadata:
-                                self.logger.info(f"Using date field: {_date_field}")
-                                date_time_obj = datetime.strptime(
-                                    metadata.get(_date_field), self.ENCODED_DATE_FORMAT
-                                )
-                                break
-                        if date_time_obj is None and "PNG:XMLcommagicmemoriesm4" in metadata:
-                            tree = ET.fromstring(metadata.get("PNG:XMLcommagicmemoriesm4"))
-                            if tree.attrib.get("creation") is not None:
-                                self.logger.info("Using m4 creation date")
-                                date_time_obj = datetime.strptime(tree.attrib.get("creation"), self.M4_DATE_FORMAT)
-                except Exception as exc:
-                    self.logger.error(f'Unable to get exif data for file: {_file}:\n{exc}')
+            self._write_json_data_to_image(_file)
+            try:
+                with ExifToolHelper() as eth:
+                    metadata = (eth.get_metadata(_file) or [])[0]
+                    for exif_date_field in self.EXIF_DATE_FIELDS:
+                        _date_field = f"EXIF:{exif_date_field}"
+                        if _date_field in metadata:
+                            self.logger.info(f"Using date field: {_date_field}")
+                            date_time_obj = datetime.strptime(
+                                metadata.get(_date_field), self.ENCODED_DATE_FORMAT
+                            )
+                            break
+                    if date_time_obj is None and "PNG:XMLcommagicmemoriesm4" in metadata:
+                        tree = ET.fromstring(metadata.get("PNG:XMLcommagicmemoriesm4"))
+                        if tree.attrib.get("creation") is not None:
+                            self.logger.info("Using m4 creation date")
+                            date_time_obj = datetime.strptime(tree.attrib.get("creation"), self.M4_DATE_FORMAT)
+            except Exception as exc:
+                self.logger.error(f'Unable to get exif data for file: {_file}:\n{exc}')
 
         # if other dates are not found, use the file modified date
         if date_time_obj is None:
@@ -224,26 +302,11 @@ class OrganizePictures:
 
     def _convert_image(self, source_file: str, dest_file: str):
         self.logger.debug(f"Converting file:\n\tSource: {source_file}\n\tDestination: {dest_file}")
-        image_ext = self._get_file_ext(source_file).lower()
         method = "pillow"
         try:
             image = Image.open(source_file)
             image.convert('RGB').save(dest_file)
-        except UnidentifiedImageError as pilexc:
-            if image_ext != ".heic":
-                return False
-            self.logger.error(f"Failed first conversion attempt via {method}: {source_file}\n{pilexc}")
-            method = "pyheif"
-            heif_file = pyheif.read(source_file)
-            image = Image.frombytes(
-                heif_file.mode,
-                heif_file.size,
-                heif_file.data,
-                "raw",
-                heif_file.mode,
-                heif_file.stride,
-            )
-            image.save(dest_file)
+            self._write_json_data_to_image(dest_file, self._get_json_file(source_file))
         except Exception as exc:
             self.logger.error(f"Failed second conversion attempt via {method}: {source_file}\n{exc}")
             return False
