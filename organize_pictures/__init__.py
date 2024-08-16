@@ -12,6 +12,7 @@ import piexif
 from pymediainfo import MediaInfo
 import ffmpeg
 from PIL import Image, UnidentifiedImageError
+import pyheif
 
 MEDIA_TYPES = {
     'image': ['.jpg', '.jpeg', '.png', '.heic'],
@@ -165,6 +166,36 @@ class OrganizePictures:
             self.logger.error(f"Failed to convert '{_file}' to '{_new_file}'")
         return converted
 
+    def _convert_image(self, source_file: str, dest_file: str):
+        self.logger.debug(f"Converting file:\n\tSource: {source_file}\n\tDestination: {dest_file}")
+        image_ext = self._get_file_ext(source_file).lower()
+        method = "pillow"
+        try:
+            image = Image.open(source_file)
+            image.convert('RGB').save(dest_file)
+        except UnidentifiedImageError as pilexc:
+            if image_ext != ".heic":
+                return False
+            method = "pyheif"
+            self.logger.error(f"Failed first conversion attempt via {method}: {source_file}\n{pilexc}")
+            heif_file = pyheif.read(source_file)
+            image = Image.frombytes(
+                heif_file.mode,
+                heif_file.size,
+                heif_file.data,
+                "raw",
+                heif_file.mode,
+                heif_file.stride,
+            )
+            image.save(dest_file)
+        except Exception as exc:
+            self.logger.error(f"Failed second conversion attempt via {method}: {source_file}\n{exc}")
+            return False
+        self.logger.debug(
+            f"Successfully converted file via {method}:\n\tSource: {source_file}\n\tDestination: {dest_file}"
+        )
+        return True
+
     def _media_file_matches(self, source_file: str, dest_file: str):
         matches = False
         # assume source file exists, ensure dest file exists
@@ -266,12 +297,9 @@ class OrganizePictures:
                                 f"Moving file:\n\tSource: {media_file}\n\tDestination: {new_file_info['path']}"
                             )
                             if new_file_info.get('convert_path') is not None:
-                                self.logger.debug(
-                                    f"Converting file:\n"
-                                    f"\tSource: {media_file}\n\tDestination: {new_file_info['convert_path']}"
-                                )
-                                image = Image.open(media_file)
-                                image.convert('RGB').save(new_file_info['convert_path'])
+                                if not self._convert_image(media_file, new_file_info['convert_path']):
+                                    self.logger.error(f"Failed to convert image: {media_file}")
+                                    continue
                             shutil.copyfile(media_file, new_file_info['path'])
                             cleanup_files.append(media_file)
                             if new_file_info.get('json_filename') is not None:
@@ -288,8 +316,6 @@ class OrganizePictures:
                                         new_file_info['animation_dest']
                                 ):
                                     cleanup_files.append(new_file_info['animation_source'])
-                        except UnidentifiedImageError as exc:
-                            self.logger.error(f"Failed to convert file: {media_file}\n{exc}")
                         except shutil.Error as exc:
                             self.logger.error(f"Failed to move file: {media_file}\n{exc}")
                 else:
