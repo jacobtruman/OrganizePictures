@@ -106,6 +106,14 @@ def parse_args():
         type=parse_offset,
     )
 
+    parser.add_argument(
+        '-m', '--minus',
+        action='store_true',
+        dest='minus',
+        help='Subtract offset',
+        default=False,
+    )
+
     args = parser.parse_args()
 
     if args.media_type is not None and args.media_type not in MEDIA_TYPES:
@@ -148,6 +156,7 @@ def main():
         cleanup=args.cleanup,
         sub_dirs=args.sub_dirs,
         offset=args.offset,
+        minus=args.minus,
         verbose=args.verbose,
     )
 

@@ -49,6 +49,7 @@ class OrganizePictures:
             cleanup: bool = False,
             sub_dirs: bool = True,
             offset: dict = None,
+            minus: bool = False,
             verbose: bool = False,
     ):
         self.logger = logger
@@ -59,6 +60,7 @@ class OrganizePictures:
         self.cleanup = cleanup
         self.sub_dirs = sub_dirs
         self.offset = offset or self.init_offset()
+        self.minus = minus
         self.verbose = verbose
 
         self.results = {"moved": 0, "duplicate": 0, "failed": 0, "deleted": 0}
@@ -167,13 +169,16 @@ class OrganizePictures:
 
         if self.offset != self.init_offset():
             # update date object with offset
+            multiplier = 1
+            if self.minus:
+                multiplier = -1
             date_time_obj = datetime(
-                year=(date_time_obj.year + self.offset.get("Y")),
-                month=(date_time_obj.month + self.offset.get("M")),
-                day=(date_time_obj.day + self.offset.get("D")),
-                hour=(date_time_obj.hour + self.offset.get("h")),
-                minute=(date_time_obj.minute + self.offset.get("m")),
-                second=(date_time_obj.second + self.offset.get("s")),
+                year=(date_time_obj.year + (self.offset.get("Y") * multiplier)),
+                month=(date_time_obj.month + (self.offset.get("M") * multiplier)),
+                day=(date_time_obj.day + (self.offset.get("D") * multiplier)),
+                hour=(date_time_obj.hour + (self.offset.get("h") * multiplier)),
+                minute=(date_time_obj.minute + (self.offset.get("m") * multiplier)),
+                second=(date_time_obj.second + (self.offset.get("s") * multiplier)),
             )
             # update file with updated date time
             self._update_file_date(_file, date_time_obj)
