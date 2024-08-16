@@ -321,7 +321,10 @@ class OrganizePictures:
 
     def run(self):
         files = self._get_files(self.source_dir)
-        for media_file in files:
+        for index, media_file in enumerate(files, start=1):
+            self.logger.info(
+                f"Processing file {index} of {len(files)}:\n\t{media_file}"
+            )
             cleanup_files = []
             date_taken = self._get_date_taken(media_file)
             if date_taken is not None:
