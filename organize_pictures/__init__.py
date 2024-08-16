@@ -3,52 +3,38 @@ import os
 from datetime import datetime, timedelta
 import hashlib
 import shutil
-from logging import Logger
 from glob import glob
-import time
 
-import pytz
 import sqlite3
 from exiftool import ExifToolHelper
 from pymediainfo import MediaInfo
 import ffmpeg
-from PIL import Image, UnidentifiedImageError
+from PIL import Image
 from pillow_heif import register_heif_opener
-import xml.etree.ElementTree as ET
 import tempfile
 import xmltodict
 from dict2xml import dict2xml
+
+from organize_pictures.TruImage import TruImage
+from organize_pictures.utils import (
+    get_logger,
+    MEDIA_TYPES,
+    OFFSET_CHARS,
+    EXIF_DATE_FIELDS,
+    DATE_FORMATS,
+    FILE_EXTS,
+)
 
 import atexit
 
 register_heif_opener()
 
-MEDIA_TYPES = {
-    'image': ['.jpg', '.jpeg', '.png', '.heic'],
-    'video': ['.mp4', '.mpg', '.mov', '.m4v', '.mts', '.mkv'],
-}
-OFFSET_CHARS = 'YMDhms'
-
 
 class OrganizePictures:
-    FILENAME_DATE_FORMAT = "%Y-%m-%d_%H'%M'%S"
-    ENCODED_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
-    M4_DATE_FORMAT = '%Y/%m/%d %H:%M:%S,%f'
-    VIDEO_DATE_FORMATS = {
-        "default": "%Y-%m-%d %H:%M:%S %Z",
-        # ".mkv": "%Y-%m-%dT%H:%M:%SZ %Z",
-    }
-    IMG_CONVERT_EXTS = ['.heic']
-    IMG_CHANGE_EXTS = ['.jpeg']
-    VID_CONVERT_EXTS = ['.mpg', '.mov', '.m4v', '.mts', '.mkv']
-    PREFERRED_IMAGE_EXT = '.jpg'
-    PREFERRED_VIDEO_EXT = '.mp4'
-    EXIF_DATE_FIELDS = ['DateTimeOriginal', 'CreateDate']
 
     # pylint: disable=too-many-arguments
     def __init__(
             self,
-            logger: Logger,
             source_directory: str,
             destination_directory: str,
             extensions: list = None,
@@ -60,7 +46,7 @@ class OrganizePictures:
             minus: bool = False,
             verbose: bool = False,
     ):
-        self.logger = logger
+        self.logger = get_logger(verbose)
         self.source_dir = source_directory
         self.dest_dir = destination_directory
         self.media_type = media_type
@@ -182,8 +168,9 @@ class OrganizePictures:
         sql = f'SELECT * FROM image_hashes WHERE hash = "{image_hash}"'
         return self.dbc.execute(sql).fetchall()
 
-    def _check_db_for_image_path_hash(self, image_path):
-        return self._check_db_for_image_hash(self._get_image_hash(image_path))
+    def _check_db_for_image_path_hash(self, image):
+        return self._check_db_for_image_hash(image.hash)
+        # return self._check_db_for_image_hash(self._get_image_hash(image_path))
 
     def _insert_image_hash(self, image_path):
         image_hash = self._get_image_hash(image_path)
@@ -226,8 +213,8 @@ class OrganizePictures:
                 if "photoTakenTime" in data:
                     _date = datetime.fromtimestamp(
                         int(data.get("photoTakenTime").get("timestamp"))
-                    ).strftime(self.ENCODED_DATE_FORMAT)
-                    for field in self.EXIF_DATE_FIELDS:
+                    ).strftime(DATE_FORMATS.get("default"))
+                    for field in EXIF_DATE_FIELDS:
                         tags[field] = _date
                 if "people" in data:
                     user_comment = None
@@ -294,70 +281,6 @@ class OrganizePictures:
                 files += self._get_files(file)
         return sorted(files)
 
-    def _get_date_taken(self, _file: str) -> datetime:
-        date_time_obj = None
-        ext = self._get_file_ext(_file).lower()
-        if ext in MEDIA_TYPES.get('video'):
-            media_info = MediaInfo.parse(_file)
-            for track in media_info.tracks:
-                if track.track_type in ['Video', 'General']:
-                    if track.encoded_date is not None:
-                        date_time_obj = datetime.strptime(
-                            track.encoded_date, self.VIDEO_DATE_FORMATS.get(
-                                ext,
-                                self.VIDEO_DATE_FORMATS.get("default")
-                            )
-                        )
-                        print(track.encoded_date, date_time_obj)
-                        _fromtz = pytz.timezone(track.encoded_date.split(" ")[-1])
-                        _totz = pytz.timezone('US/Mountain')
-                        date_time_obj = datetime.astimezone(date_time_obj.replace(tzinfo=_fromtz), _totz)
-                        break
-                    if track.recorded_date is not None:
-                        date_time_obj = datetime.strptime(track.recorded_date, "%Y-%m-%d %H:%M:%S%z")
-                        break
-        elif ext in MEDIA_TYPES.get('image'):
-            self._write_json_data_to_image(_file)
-            try:
-                with ExifToolHelper() as eth:
-                    metadata = (eth.get_metadata(_file) or [])[0]
-                    for exif_date_field in self.EXIF_DATE_FIELDS:
-                        _date_field = f"EXIF:{exif_date_field}"
-                        if _date_field in metadata:
-                            self.logger.info(f"Using date field: {_date_field}")
-                            date_time_obj = datetime.strptime(
-                                metadata.get(_date_field), self.ENCODED_DATE_FORMAT
-                            )
-                            break
-                    if date_time_obj is None and "PNG:XMLcommagicmemoriesm4" in metadata:
-                        tree = ET.fromstring(metadata.get("PNG:XMLcommagicmemoriesm4"))
-                        if tree.attrib.get("creation") is not None:
-                            self.logger.info("Using m4 creation date")
-                            date_time_obj = datetime.strptime(tree.attrib.get("creation"), self.M4_DATE_FORMAT)
-            except Exception as exc:
-                self.logger.error(f'Unable to get exif data for file: {_file}:\n{exc}')
-
-        # if other dates are not found, use the file modified date
-        if date_time_obj is None:
-            self.logger.info("Using file modified date as date taken")
-            date_time_obj = datetime.strptime(time.ctime(os.path.getmtime(_file)), '%c')
-
-        if self.offset != self.init_offset():
-            # update date object with offset
-            multiplier = 1
-            if self.minus:
-                multiplier = -1
-            date_time_obj = datetime(
-                year=(date_time_obj.year + (self.offset.get("Y") * multiplier)),
-                month=(date_time_obj.month + (self.offset.get("M") * multiplier)),
-                day=(date_time_obj.day + (self.offset.get("D") * multiplier)),
-                hour=(date_time_obj.hour + (self.offset.get("h") * multiplier)),
-                minute=(date_time_obj.minute + (self.offset.get("m") * multiplier)),
-                second=(date_time_obj.second + (self.offset.get("s") * multiplier)),
-            )
-
-        return date_time_obj
-
     def _convert_video(self, _file: str, _new_file: str):
         converted = False
         if os.path.isfile(_new_file):
@@ -382,22 +305,6 @@ class OrganizePictures:
         else:
             self.logger.error(f"Failed to convert \"{_file}\" to \"{_new_file}\"")
         return converted
-
-    def _convert_image(self, source_file: str, dest_file: str):
-        self.logger.debug(f"Converting file:\n\tSource: {source_file}\n\tDestination: {dest_file}")
-        method = "pillow"
-        try:
-            image = Image.open(source_file)
-            image.convert('RGB').save(dest_file)
-            self._write_json_data_to_image(dest_file, self._get_json_file(source_file))
-        except Exception as exc:
-            self.logger.error(f"Failed second conversion attempt via {method}: {source_file}\n{exc}")
-            return False
-        self.results['moved'] += 1
-        self.logger.debug(
-            f"Successfully converted file via {method}:\n\tSource: {source_file}\n\tDestination: {dest_file}"
-        )
-        return True
 
     def _media_file_matches(self, source_file: str, dest_file: str):
         matches = False
@@ -429,15 +336,15 @@ class OrganizePictures:
 
     def _update_file_date(self, _file, _date: datetime):
         try:
-            new_date = _date.strftime(self.ENCODED_DATE_FORMAT)
+            new_date = _date.strftime(DATE_FORMATS.get("default"))
             image = Image.open(_file)
 
             with ExifToolHelper() as eth:
                 metadata = (eth.get_metadata(_file) or [])[0]
-                if self.EXIF_DATE_FIELDS[0] not in metadata or metadata.get(self.EXIF_DATE_FIELDS[0]) != new_date:
+                if EXIF_DATE_FIELDS[0] not in metadata or metadata.get(EXIF_DATE_FIELDS[0]) != new_date:
                     eth.set_tags(
                         [_file],
-                        tags={field: _date for field in self.EXIF_DATE_FIELDS},
+                        tags={field: _date for field in EXIF_DATE_FIELDS},
                         params=["-P", "-overwrite_original"]
                     )
                 else:
@@ -445,123 +352,93 @@ class OrganizePictures:
         except Exception as exc:
             self.logger.error(f"Failed to update file date for {_file}: {exc}")
 
-    def _get_new_fileinfo(self, _file: str, _date: datetime):
-        _ext = self._get_file_ext(_file)
-        _ext_lower = _ext.lower()
-        _year = _date.strftime("%Y")
-        _month = _date.strftime("%b")
+    def _get_new_fileinfo(self, image: TruImage):
+        _ext_lower = image.ext.lower()
+        _year = image.date_taken.strftime("%Y")
+        _month = image.date_taken.strftime("%b")
         _dir = self.dest_dir
         if self.sub_dirs:
             _dir += f"/{_year}/{_month}"
 
-        _filename = f"{_date.strftime(self.FILENAME_DATE_FORMAT)}{_ext_lower}"
+        _filename = f"{image.date_taken.strftime(DATE_FORMATS.get('filename'))}"
         _new_file_info = {
-            'ext': _ext_lower,
             'dir': _dir,
             'filename': _filename,
-            'path': f"{_dir}/{_filename}",
-            'date_encoded': _date
         }
-        json_file = self._get_json_file(_file)
-        if os.path.isfile(json_file):
-            _new_file_info['json_file'] = json_file
-            _new_file_info['new_json_file'] = f"{_dir}/{self._get_json_file(_filename)}"
+        new_file_path = f"{_dir}/{_filename}{FILE_EXTS.get('image_preferred')}"
+        # if image.json_file_path is not None:
+        #     _new_file_info['json_file'] = image.json_file_path
+        #     _new_file_info['new_json_file'] = f"{_dir}/{_filename}.json"
+        #
+        # if image.animation is not None:
+        #     _new_file_info['animation_source'] = image.animation
+        #     _new_file_info['animation_dest'] = f"{_dir}/{_filename.replace(_ext_lower, FILE_EXTS.get('video_preferred'))}"
+        #
+        # if _ext_lower in FILE_EXTS.get('video_convert'):
+        #     _new_file_info['convert_path'] = f"{_dir}/{_filename.replace(_ext_lower, FILE_EXTS.get('image_preferred'))}"
+        # if _ext_lower in FILE_EXTS.get('video_convert'):
+        #     _new_file_info['path'] = f"{_dir}/{_filename.replace(_ext_lower, FILE_EXTS.get('video_preferred'))}"
+        # if _ext_lower in FILE_EXTS.get('image_change'):
+        #     _new_file_info['path'] = f"{_dir}/{_filename.replace(_ext_lower, FILE_EXTS.get('image_preferred'))}"
 
-        image_animation = self._find_image_animation(_file, _ext)
-        if self.media_type == 'image' and image_animation is not None:
-            _new_file_info['animation_source'] = image_animation
-            _new_file_info['animation_dest'] = f"{_dir}/{_filename.replace(_ext_lower, self.PREFERRED_VIDEO_EXT)}"
-
-        if _ext_lower in self.IMG_CONVERT_EXTS:
-            _new_file_info['convert_path'] = f"{_dir}/{_filename.replace(_ext_lower, self.PREFERRED_IMAGE_EXT)}"
-        if _ext_lower in self.VID_CONVERT_EXTS:
-            _new_file_info['path'] = f"{_dir}/{_filename.replace(_ext_lower, self.PREFERRED_VIDEO_EXT)}"
-        if _ext_lower in self.IMG_CHANGE_EXTS:
-            _new_file_info['path'] = f"{_dir}/{_filename.replace(_ext_lower, self.PREFERRED_IMAGE_EXT)}"
-
-        if not os.path.isdir(_new_file_info['dir']):
-            self.logger.debug(f"Destination path does not exist, creating: {_new_file_info['dir']}")
-            os.makedirs(_new_file_info['dir'])
-        if not os.path.exists(_new_file_info['path']):
+        if not os.path.isdir(_dir):
+            self.logger.debug(f"Destination path does not exist, creating: {_dir}")
+            os.makedirs(_dir)
+        if not os.path.exists(f"{_dir}/{_filename}{FILE_EXTS.get('image_preferred')}"):
             return _new_file_info
 
-        self.logger.debug(f"Destination file already exists: {_new_file_info['path']}")
-        if self._media_file_matches(_file, _new_file_info['path']):
+        self.logger.debug(f"Destination file already exists: {new_file_path}")
+        image2 = TruImage(new_file_path, self.logger)
+        if image2.valid and image.hash == image2.hash:
             _new_file_info['duplicate'] = True
             return _new_file_info
         else:
             # increment 1 second and try again
-            new_dt = _date + timedelta(seconds=1)
-            return self._get_new_fileinfo(_file, new_dt)
+            image.date_taken = image.date_taken + timedelta(seconds=1)
+            return self._get_new_fileinfo(image)
 
     def run(self):
+        cleanup_files = []
         files = self._get_files(self.source_dir)
         for index, media_file in enumerate(files, start=1):
-            self.current_image = media_file
-            self.logger.info(
-                f"Processing file {index} / {len(files)}:\n\t{media_file}"
-            )
-            cleanup_files = []
-            if self._check_db_for_image_path_hash(media_file):
-                self.logger.debug(f"{media_file} Already in db")
-                cleanup_files.append(media_file)
-                continue
-            date_taken = self._get_date_taken(media_file)
-            if date_taken is not None:
-                new_file_info = self._get_new_fileinfo(media_file, date_taken)
-                if not new_file_info.get('duplicate'):
-                    if new_file_info['ext'] in MEDIA_TYPES.get('video'):
-                        if self._convert_video(media_file, new_file_info['path']):
-                            cleanup_files.append(media_file)
-                    else:
+            image = TruImage(media_file, self.logger)
+            if image.valid:
+                self.logger.info(
+                    f"Processing file {index} / {len(files)}:\n\t{media_file}"
+                )
+                if self._check_db_for_image_path_hash(image):
+                    self.logger.debug(f"{media_file} Already in db")
+                    self.results['duplicate'] += 1
+                    cleanup_files += image.files.values()
+                    continue
+
+                if image.date_taken is not None:
+                    new_file_info = self._get_new_fileinfo(image)
+                    if not new_file_info.get('duplicate'):
                         try:
-                            self.logger.info(
-                                f"Moving file:\n\tSource: {media_file}\n\tDestination: {new_file_info['path']}"
-                            )
-                            if new_file_info.get('convert_path') is not None:
-                                if not self._convert_image(media_file, new_file_info['convert_path']):
-                                    self.logger.error(f"Failed to convert image: {media_file}")
-                                    continue
-                            shutil.copyfile(media_file, new_file_info['path'])
-                            # update file date of new file
-                            self._update_file_date(new_file_info['path'], new_file_info['date_encoded'])
-                            self.results['moved'] += 1
-                            cleanup_files.append(media_file)
-                            if "animation_source" in new_file_info:
-                                if self._media_file_matches(
-                                        new_file_info['animation_source'],
-                                        new_file_info['animation_dest']
-                                ) or self._convert_video(
-                                        new_file_info['animation_source'],
-                                        new_file_info['animation_dest']
-                                ):
-                                    cleanup_files.append(new_file_info['animation_source'])
+                            copied = image.copy(new_file_info)
+                            cleanup_files += copied.keys()
+                            self.results['moved'] += len(copied)
                             # add to db
                             self._insert_image_hash(media_file)
                         except shutil.Error as exc:
                             self.results['failed'] += 1
                             self.logger.error(f"Failed to move file: {media_file}\n{exc}")
+                    else:
+                        # file is already moved
+                        self.logger.info(f"File already moved: {media_file} -> {new_file_info.get('path')}")
+                        cleanup_files += image.files.values()
+            else:
+                print("Not a valid image file - maybe video?")
+                # TODO: video object processing
+                # if new_file_info['ext'] in MEDIA_TYPES.get('video'):
+                #     if self._convert_video(media_file, new_file_info['path']):
+                #         cleanup_files.append(media_file)
 
-                    if new_file_info.get('json_file') is not None:
-                        self.logger.info(
-                            f"Moving file:\n\tSource: {new_file_info.get('json_file')}\n\t"
-                            f"Destination: {new_file_info.get('new_json_file')}")
-                        shutil.copyfile(new_file_info['json_file'], new_file_info['new_json_file'])
-                        self.results['moved'] += 1
-                        cleanup_files.append(new_file_info['json_file'])
-                else:
-                    # file is already moved
-                    self.logger.info(f"File already moved: {media_file} -> {new_file_info.get('path')}")
-                    cleanup_files.append(media_file)
-                    if new_file_info.get('json_file'):
-                        cleanup_files.append(new_file_info.get('json_file'))
-                    if new_file_info.get('animation_source'):
-                        cleanup_files.append(new_file_info.get('animation_source'))
-
-            if cleanup_files and self.cleanup:
-                for cleanup_file in cleanup_files:
-                    self.results['deleted'] += 1
-                    self.logger.info(f"Deleting file: {cleanup_file}")
-                    os.remove(cleanup_file)
+        if cleanup_files and self.cleanup:
+            for cleanup_file in cleanup_files:
+                self.results['deleted'] += 1
+                self.logger.info(f"Deleting file: {cleanup_file}")
+                os.remove(cleanup_file)
 
         return self.results

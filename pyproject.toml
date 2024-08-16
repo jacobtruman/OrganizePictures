@@ -10,7 +10,7 @@ exclude = ["docs*", "tests*"]
 
 [project]
 name = 'OrganizePictures'
-version = '0.6.7'
+version = '0.6.8'
 description='A tool for organizing pictures into folders by date.'
 
 authors = [
@@ -26,9 +26,10 @@ dependencies = [
     "pillow_heif>=0.16.0",
     "xmltodict>=0.13.0",
     "dict2xml>=1.7.5",
+    "python-magic>=0.4.27",
 ]
 
-requires-python = ">=3.7, <4"
+requires-python = ">=3.11, <4"
 
 [project.urls]
 homepage = "https://github.com/jacobtruman/OrganizePictures"

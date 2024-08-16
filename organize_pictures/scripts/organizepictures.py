@@ -128,27 +128,7 @@ def parse_args():
 def main():
     args = parse_args()
 
-    logger = logging.getLogger(__name__)
-    logger.setLevel(logging.DEBUG)
-    formatter = logging.Formatter('[ %(asctime)s ][ %(levelname)s ] %(message)s')
-
-    file_handle = logging.FileHandler(f"{__name__}.log")
-    if args.verbose:
-        log_level = logging.DEBUG
-    else:
-        log_level = logging.INFO
-    file_handle.setLevel(logging.DEBUG)
-    file_handle.setFormatter(formatter)
-
-    stream_handle = logging.StreamHandler()
-    stream_handle.setLevel(log_level)
-    stream_handle.setFormatter(formatter)
-
-    logger.addHandler(file_handle)
-    logger.addHandler(stream_handle)
-
     organizer = OrganizePictures(
-        logger=logger,
         source_directory=args.source_dir,
         destination_directory=args.destination_dir,
         media_type=args.media_type,
@@ -163,9 +143,9 @@ def main():
     result = organizer.run()
 
     if result:
-        logger.info("######### Results #########")
+        organizer.logger.info("######### Results #########")
         for item, count in result.items():
-            logger.info(f"{item}:\t{count}")
+            organizer.logger.info(f"{item}:\t{count}")
 
 
 if __name__ == '__main__':
