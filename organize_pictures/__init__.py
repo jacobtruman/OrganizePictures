@@ -280,6 +280,7 @@ class OrganizePictures:
             exif_dict = piexif.load(_file)
             if exif_dict["Exif"][piexif.ExifIFD.DateTimeDigitized] != new_date:
                 self.logger.debug(f"Updating date digitized for {_file}")
+                exif_dict["Exif"][piexif.ExifIFD.DateTimeOriginal] = new_date
                 exif_dict["Exif"][piexif.ExifIFD.DateTimeDigitized] = new_date
                 exif_bytes = piexif.dump(exif_dict)
                 image.save(_file, exif=exif_bytes)
