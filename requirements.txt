@@ -4,9 +4,6 @@
 #
 #    pip-compile
 #
-
-cffi==1.15.1
-    # via pyheif
 ffmpeg-python==0.2.0
     # via -r requirements.in
 future==0.18.3
@@ -14,10 +11,10 @@ future==0.18.3
 piexif==1.1.3
     # via -r requirements.in
 pillow==9.5.0
-    # via -r requirements.in
-pycparser==2.21
-    # via cffi
-pyheif==0.7.1
+    # via
+    #   -r requirements.in
+    #   pillow-heif
+pillow-heif==0.16.0
     # via -r requirements.in
 pymediainfo==6.0.1
     # via -r requirements.in
