@@ -7,20 +7,18 @@ import argparse
 from organize_pictures import OrganizePictures
 
 
+def extensions_list_str(values):
+    if values is None:
+        return None
+    return [ext if ext.startswith(".") else f".{ext}" for ext in values.split(',')]
+
+
 def parse_args():
     """
     Parse command line arguments.
     """
     parser = argparse.ArgumentParser(
         description='Run OrganizePictures Functions',
-    )
-
-    parser.add_argument(
-        '-d', '--dry_run',
-        action='store_true',
-        dest='dry_run',
-        help='Dry run mode',
-        default=False,
     )
 
     parser.add_argument(
@@ -39,7 +37,15 @@ def parse_args():
     )
 
     parser.add_argument(
-        '-m', '--destination_dir',
+        '-e', '--extensions',
+        dest='extensions',
+        help="File extensions to process",
+        default=None,
+        type=extensions_list_str,
+    )
+
+    parser.add_argument(
+        '-d', '--destination_dir',
         dest='destination_dir',
         help="Media destination directory",
         default="./pictures/renamed",
@@ -84,6 +90,7 @@ def main():
         logger=logger,
         source_directory=args.source_dir,
         destination_directory=args.destination_dir,
+        extensions=args.extensions,
         cleanup=args.cleanup,
         verbose=args.verbose,
     )
