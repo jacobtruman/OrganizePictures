@@ -8,6 +8,7 @@ from glob import glob
 import time
 
 import pytz
+import sqlite3
 from exiftool import ExifToolHelper
 from pymediainfo import MediaInfo
 import ffmpeg
@@ -15,7 +16,10 @@ from PIL import Image, UnidentifiedImageError
 from pillow_heif import register_heif_opener
 import xml.etree.ElementTree as ET
 import xmltodict
+import tempfile
 from dict2xml import dict2xml
+
+import atexit
 
 register_heif_opener()
 
@@ -78,6 +82,33 @@ class OrganizePictures:
                 for exts in MEDIA_TYPES.values():
                     self.extensions += exts
 
+        self.current_hash = None
+        self.current_image = None
+        self.db_filename = 'pictures.db'
+        self.table_name = "image_hashes"
+        if os.path.isfile(f'/raid2/{self.db_filename}'):
+            db_file = f'/raid2/{self.db_filename}'
+        else:
+            db_file = f'./{self.db_filename}'
+        create = False
+        if not os.path.isfile(db_file):
+            create = True
+
+        self.db_conn = sqlite3.connect(db_file)
+        self.dbc = self.db_conn.cursor()
+
+        if create:
+            # Create table
+            self.dbc.execute(
+                f"CREATE TABLE {self.table_name} (image_path text, hash text, UNIQUE(image_path) ON CONFLICT IGNORE)"
+            )
+        atexit.register(self._complete)
+
+    def _complete(self):
+        self.logger.debug("EXIT: Committing final records")
+        self.db_conn.commit()
+        self.db_conn.close()
+
     @staticmethod
     def _get_file_ext(file):
         _, ext = os.path.splitext(os.path.basename(file))
@@ -107,12 +138,61 @@ class OrganizePictures:
         return parsed_json
 
     @staticmethod
+    def _find_image_animation(_file: str, _ext: str):
+        for ext in MEDIA_TYPES.get('video'):
+            image_animation = _file.replace(_ext, ext)
+            if os.path.isfile(image_animation):
+                return image_animation
+            image_animation = _file.replace(_ext, ext.upper())
+            if os.path.isfile(image_animation):
+                return image_animation
+        return None
+
+    @staticmethod
     def _md5(fname):
         hash_md5 = hashlib.md5()
         with open(fname, "rb") as file_handle:
             for chunk in iter(lambda: file_handle.read(4096), b""):
                 hash_md5.update(chunk)
         return hash_md5.hexdigest()
+
+    def _get_image_hash(self, image_path):
+        if image_path == self.current_image and self.current_hash is not None:
+            return self.current_hash
+        with tempfile.TemporaryDirectory() as temp_dir:
+            try:
+                self.logger.debug(f"Getting hash for {image_path}")
+                temp_file = f"{temp_dir}/{os.path.basename(image_path)}"
+                image = Image.open(image_path)
+                image.save(temp_file)
+                image.close()
+                image = Image.open(temp_file)
+                image_hash = hashlib.md5(image.tobytes()).hexdigest()
+                image.close()
+                return image_hash
+            except Exception:  # pylint: disable=broad-except
+                self.logger.error(f"Error opening image: {image_path}")
+                return None
+
+    def _check_db_for_image_path(self, image_path):
+        sql = f'SELECT * FROM image_hashes WHERE image_path = "{image_path}"'
+        return self.dbc.execute(sql).fetchall()
+
+    def _check_db_for_image_hash(self, image_hash):
+        sql = f'SELECT * FROM image_hashes WHERE hash = "{image_hash}"'
+        return self.dbc.execute(sql).fetchall()
+
+    def _check_db_for_image_path_hash(self, image_path):
+        return self._check_db_for_image_hash(self._get_image_hash(image_path))
+
+    def _insert_image_hash(self, image_path):
+        image_hash = self._get_image_hash(image_path)
+        if image_hash is not None:
+            sql = f'INSERT INTO image_hashes VALUES ("{image_path}","{image_hash}")'
+            self.dbc.execute(sql)
+            self.current_hash = None
+            return True
+        return False
 
     def _update_tags(self, _file, _tags, _metadata):
         del_tags = []
@@ -344,17 +424,6 @@ class OrganizePictures:
                                 break
         return matches
 
-    @staticmethod
-    def _find_image_animation(_file: str, _ext: str):
-        for ext in MEDIA_TYPES.get('video'):
-            image_animation = _file.replace(_ext, ext)
-            if os.path.isfile(image_animation):
-                return image_animation
-            image_animation = _file.replace(_ext, ext.upper())
-            if os.path.isfile(image_animation):
-                return image_animation
-        return None
-
     def _update_file_date(self, _file, _date: datetime):
         try:
             new_date = _date.strftime(self.ENCODED_DATE_FORMAT)
@@ -425,10 +494,15 @@ class OrganizePictures:
     def run(self):
         files = self._get_files(self.source_dir)
         for index, media_file in enumerate(files, start=1):
+            self.current_image = media_file
             self.logger.info(
                 f"Processing file {index} / {len(files)}:\n\t{media_file}"
             )
             cleanup_files = []
+            if self._check_db_for_image_path_hash(media_file):
+                self.logger.debug(f"{media_file} Already in db")
+                cleanup_files.append(media_file)
+                continue
             date_taken = self._get_date_taken(media_file)
             if date_taken is not None:
                 new_file_info = self._get_new_fileinfo(media_file, date_taken)
@@ -459,6 +533,8 @@ class OrganizePictures:
                                         new_file_info['animation_dest']
                                 ):
                                     cleanup_files.append(new_file_info['animation_source'])
+                            # add to db
+                            self._insert_image_hash(media_file)
                         except shutil.Error as exc:
                             self.results['failed'] += 1
                             self.logger.error(f"Failed to move file: {media_file}\n{exc}")
