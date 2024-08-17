@@ -1,18 +1,18 @@
 from datetime import datetime
 import hashlib
 import json
+import mimetypes
 import os
 import shutil
 import tempfile
+import xml.etree.ElementTree as ET
 
 from dict2xml import dict2xml
 from exiftool import ExifToolHelper
 import ffmpeg
 import magic
-import mimetypes
 from PIL import Image
 from pillow_heif import register_heif_opener
-import xml.etree.ElementTree as ET
 import xmltodict
 
 from organize_pictures.utils import get_logger, MEDIA_TYPES, EXIF_DATE_FIELDS, DATE_FORMATS, FILE_EXTS
@@ -20,6 +20,7 @@ from organize_pictures.utils import get_logger, MEDIA_TYPES, EXIF_DATE_FIELDS, D
 register_heif_opener()
 
 
+# pylint: disable=too-many-instance-attributes
 class TruImage:
 
     def __init__(self, image_path, logger=None, verbose=False):
@@ -124,7 +125,7 @@ class TruImage:
     @property
     def json_data(self):
         if self._json_data is None and self.json_file_path:
-            with open(self.json_file_path, "r") as file_handle:
+            with open(self.json_file_path, "r", encoding="utf-8") as file_handle:
                 self._json_data = json.load(file_handle)
         return self._json_data
 
@@ -136,6 +137,7 @@ class TruImage:
 
     @property
     def date_taken(self):
+        # pylint: disable=too-many-nested-blocks
         if self._date_taken is None:
             try:
                 for exif_date_field in EXIF_DATE_FIELDS:
@@ -296,6 +298,7 @@ class TruImage:
                     params=["-P", "-overwrite_original"]
                 )
 
+    # pylint: disable=too-many-branches
     def _write_json_data_to_image(self, image_path=None):
         if image_path is None:
             image_path = self.image_path

@@ -1,8 +1,10 @@
+import atexit
 import json
 import os
 from datetime import datetime, timedelta
 import hashlib
 import shutil
+import tempfile
 from glob import glob
 
 import sqlite3
@@ -11,7 +13,6 @@ from pymediainfo import MediaInfo
 import ffmpeg
 from PIL import Image
 from pillow_heif import register_heif_opener
-import tempfile
 import xmltodict
 from dict2xml import dict2xml
 
@@ -25,11 +26,10 @@ from organize_pictures.utils import (
     FILE_EXTS,
 )
 
-import atexit
-
 register_heif_opener()
 
 
+# pylint: disable=too-many-instance-attributes
 class OrganizePictures:
 
     # pylint: disable=too-many-arguments
@@ -203,6 +203,7 @@ class OrganizePictures:
                     params=["-P", "-overwrite_original"]
                 )
 
+    # pylint: disable=too-many-branches
     def _write_json_data_to_image(self, _file, _json_file=None):
         if _json_file is None:
             _json_file = self._get_json_file(_file)
@@ -310,6 +311,7 @@ class OrganizePictures:
 
     def _media_file_matches(self, source_file: str, dest_file: str):
         matches = False
+        # pylint: disable=too-many-nested-blocks
         # assume source file exists, ensure dest file exists
         if os.path.isfile(dest_file):
             if self._md5(source_file) == self._md5(dest_file):
@@ -324,7 +326,7 @@ class OrganizePictures:
                             Destination: {dest_file}""")
                 source_file_ext = self._get_file_ext(source_file).lower()
                 if source_file_ext in MEDIA_TYPES.get('video'):
-                    self.logger.debug(f"Checking if video file has already been converted")
+                    self.logger.debug("Checking if video file has already been converted")
                     _media_info = MediaInfo.parse(dest_file)
                     for _track in _media_info.tracks:
                         if hasattr(_track, 'comment') and _track.comment is not None:
@@ -368,20 +370,6 @@ class OrganizePictures:
             'filename': _filename,
         }
         new_file_path = f"{_dir}/{_filename}{FILE_EXTS.get('image_preferred')}"
-        # if image.json_file_path is not None:
-        #     _new_file_info['json_file'] = image.json_file_path
-        #     _new_file_info['new_json_file'] = f"{_dir}/{_filename}.json"
-        #
-        # if image.animation is not None:
-        #     _new_file_info['animation_source'] = image.animation
-        #     _new_file_info['animation_dest'] = f"{_dir}/{_filename.replace(_ext_lower, FILE_EXTS.get('video_preferred'))}"
-        #
-        # if _ext_lower in FILE_EXTS.get('video_convert'):
-        #     _new_file_info['convert_path'] = f"{_dir}/{_filename.replace(_ext_lower, FILE_EXTS.get('image_preferred'))}"
-        # if _ext_lower in FILE_EXTS.get('video_convert'):
-        #     _new_file_info['path'] = f"{_dir}/{_filename.replace(_ext_lower, FILE_EXTS.get('video_preferred'))}"
-        # if _ext_lower in FILE_EXTS.get('image_change'):
-        #     _new_file_info['path'] = f"{_dir}/{_filename.replace(_ext_lower, FILE_EXTS.get('image_preferred'))}"
 
         if not os.path.isdir(_dir):
             self.logger.debug(f"Destination path does not exist, creating: {_dir}")
@@ -394,10 +382,9 @@ class OrganizePictures:
         if image2.valid and image.hash == image2.hash:
             _new_file_info['duplicate'] = True
             return _new_file_info
-        else:
-            # increment 1 second and try again
-            image.date_taken = image.date_taken + timedelta(seconds=1)
-            return self._get_new_fileinfo(image)
+        # increment 1 second and try again
+        image.date_taken = image.date_taken + timedelta(seconds=1)
+        return self._get_new_fileinfo(image)
 
     def run(self):
         cleanup_files = []
