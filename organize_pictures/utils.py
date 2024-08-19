@@ -34,6 +34,9 @@ FILE_EXTS = {
 
 def get_logger(verbose: bool = False):
     logger = logging.getLogger(__name__)
+    # clear any existing handlers
+    if logger.hasHandlers():
+        logger.handlers.clear()
     logger.setLevel(logging.DEBUG)
     formatter = logging.Formatter('[ %(asctime)s ][ %(levelname)s ] %(message)s')
 
