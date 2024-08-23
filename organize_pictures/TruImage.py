@@ -9,6 +9,7 @@ import xml.etree.ElementTree as ET
 
 from dict2xml import dict2xml
 from exiftool import ExifToolHelper
+from exiftool.exceptions import ExifToolExecuteError
 import ffmpeg
 import magic
 from PIL import Image
@@ -37,6 +38,7 @@ class TruImage:
         self._date_taken = None
         self._hash = None
         self._animation = None
+        self.regenerated = False
         self.valid = self.ext.lower() in MEDIA_TYPES.get('image')
         if self.valid:
             self._reconcile_mime_type()
@@ -187,10 +189,39 @@ class TruImage:
         _date = value.strftime(DATE_FORMATS.get("default"))
         self._update_tags(self.image_path, {field: _date for field in EXIF_DATE_FIELDS})
 
+    def _regenerate(self):
+        """
+        Regenerate image
+        :return:
+        """
+        try:
+            self.logger.warning(f"Regenerating image: {self.image_path}")
+            # get exif data
+            exif_data = self.exif_data
+            # regenerate image
+            Image.open(self.image_path).save(self.image_path)
+            # update exif data
+            self.logger.debug("Image regenerated; trying to rewrite exif data")
+            tags = {tag: value for tag, value in exif_data.items() if tag.startswith("EXIF:")}
+            self._update_tags(self.image_path, tags)
+            self.logger.info(f"Successfully regenerated image: {self.image_path}")
+            self.regenerated = True
+            return True
+        except Exception as exc:
+            self.logger.error(f"Failed to regenerate image: {self.image_path}\n{exc}")
+            return False
+
     def _reconcile_mime_type(self):
         mime_guess = mimetypes.guess_type(self.image_path)[0]
         mime_actual = magic.from_file(self.image_path, mime=True)
-        if mime_actual == "inode/x-empty":
+        print(f"{self.image_path}\nGuess: {mime_guess}\nActual: {mime_actual}")
+        # exit()
+
+        if not mime_actual.startswith("image/"):
+            if self._regenerate():
+                mime_actual = magic.from_file(self.image_path, mime=True)
+
+        if not mime_actual.startswith("image/"):
             self.valid = False
         elif mime_guess != mime_actual:
             file_updates = {}
@@ -279,24 +310,31 @@ class TruImage:
                 self._hash = None
 
     def _update_tags(self, image_path, tags):
-        del_tags = []
-        for _field, _value in tags.items():
-            if isinstance(_value, str):
-                _value = _value.encode('ascii', 'ignore').decode('ascii')
-                tags[_field] = _value
-            exif_field = f"EXIF:{_field}"
-            if exif_field in self.exif_data and self.exif_data.get(exif_field) == _value:
-                del_tags.append(_field)
-        for _tag in del_tags:
-            del tags[_tag]
-        if tags:
-            self.logger.debug(f"Updating tags for {image_path}\n{tags}")
-            with ExifToolHelper() as _eth:
-                _eth.set_tags(
-                    [image_path],
-                    tags=tags,
-                    params=["-P", "-overwrite_original"]
-                )
+        try:
+            del_tags = []
+            for _field, _value in tags.items():
+                if isinstance(_value, str):
+                    _value = _value.encode('ascii', 'ignore').decode('ascii')
+                    tags[_field] = _value
+                exif_field = f"EXIF:{_field}"
+                if exif_field in self.exif_data and self.exif_data.get(exif_field) == _value:
+                    del_tags.append(_field)
+            for _tag in del_tags:
+                del tags[_tag]
+            if tags:
+                self.logger.debug(f"Updating tags for {image_path}\n{tags}")
+                with ExifToolHelper() as _eth:
+                    _eth.set_tags(
+                        [image_path],
+                        tags=tags,
+                        params=["-P", "-overwrite_original"]
+                    )
+        except ExifToolExecuteError as exc:
+            self.logger.error(f"Failed to update tags for {image_path}:\n{exc}")
+            if self._regenerate():
+                self._update_tags(image_path, tags)
+            else:
+                self.valid = False
 
     # pylint: disable=too-many-branches
     def _write_json_data_to_image(self, image_path=None):
