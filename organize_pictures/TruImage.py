@@ -214,8 +214,6 @@ class TruImage:
     def _reconcile_mime_type(self):
         mime_guess = mimetypes.guess_type(self.image_path)[0]
         mime_actual = magic.from_file(self.image_path, mime=True)
-        print(f"{self.image_path}\nGuess: {mime_guess}\nActual: {mime_actual}")
-        # exit()
 
         if not mime_actual.startswith("image/"):
             if self._regenerate():
