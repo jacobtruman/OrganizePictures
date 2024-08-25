@@ -5,7 +5,6 @@ import mimetypes
 import os
 import shutil
 import tempfile
-from time import sleep
 import xml.etree.ElementTree as ET
 
 from dict2xml import dict2xml
@@ -323,28 +322,25 @@ class TruImage:
             if tags:
                 self.logger.debug(f"Updating tags for {image_path}\n{tags}")
                 with ExifToolHelper() as _eth:
-                    for tag, val in tags.items():
-                        print(tag, val)
-                        if tag == "UserComment":
-                            val = val.replace(
-                                val[val.find("METADATA-START"):val.find("METADATA-END") + len("METADATA-END")], ""
+                    if self.verbose:
+                        for tag, val in tags.items():
+                            self.logger.debug(f"Tag [{tag}]: {val}")
+                            if tag == "UserComment":
+                                val = val.replace(
+                                    val[val.find("METADATA-START"):val.find("METADATA-END") + len("METADATA-END")], ""
+                                )
+                            _eth.set_tags(
+                                [image_path],
+                                tags={tag: val},
+                                params=["-m", "-u", "-U", "-P", "-overwrite_original"]
                             )
-                            print(val)
-                        # if isinstance(tags[tag], str):
-                        #     tags[tag] = tags[tag].encode('utf-8')
+                    else:
                         _eth.set_tags(
                             [image_path],
-                            tags={tag: val},
+                            tags=tags,
                             params=["-m", "-u", "-U", "-P", "-overwrite_original"]
                         )
-                    # _eth.set_tags(
-                    #     [image_path],
-                    #     tags=tags,
-                    #     params=["-m", "-u", "-U", "-P", "-overwrite_original"]
-                    # )
         except ExifToolExecuteError as exc:
-            print("Error", exc)
-            exit()
             self.logger.error(f"Failed to update tags for {image_path}:\n{exc}")
             if not self.regenerated:
                 if self._regenerate():
