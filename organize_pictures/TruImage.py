@@ -379,7 +379,7 @@ class TruImage:
 
                     # make sure UserComment is at the root level
                     if "UserComment" not in data_dict:
-                        data_dict["UserComment"] = data_dict
+                        data_dict = {"UserComment": data_dict}
                     # if people_comment is not in user_comment, add people_dict
                     if dict2xml(people_dict, newlines=False) not in user_comment:
                         data_dict["UserComment"].update(people_dict)
