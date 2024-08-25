@@ -5,6 +5,7 @@ import mimetypes
 import os
 import shutil
 import tempfile
+from time import sleep
 import xml.etree.ElementTree as ET
 
 from dict2xml import dict2xml
@@ -200,12 +201,12 @@ class TruImage:
             exif_data = self.exif_data
             # regenerate image
             Image.open(self.image_path).save(self.image_path)
+            self.regenerated = True
             # update exif data
             self.logger.debug("Image regenerated; trying to rewrite exif data")
-            tags = {tag: value for tag, value in exif_data.items() if tag.startswith("EXIF:")}
-            self._update_tags(self.image_path, tags)
+            tags = {tag.replace("EXIF:", ""): value for tag, value in exif_data.items() if tag.startswith("EXIF:")}
+            self._update_tags(image_path=self.image_path, tags=tags)
             self.logger.info(f"Successfully regenerated image: {self.image_path}")
-            self.regenerated = True
             return True
         except Exception as exc:
             self.logger.error(f"Failed to regenerate image: {self.image_path}\n{exc}")
@@ -307,7 +308,7 @@ class TruImage:
                 self.logger.error(f"Error opening image: {self.image_path}")
                 self._hash = None
 
-    def _update_tags(self, image_path, tags):
+    def _update_tags(self, image_path: str, tags: dict):
         try:
             del_tags = []
             for _field, _value in tags.items():
@@ -322,15 +323,32 @@ class TruImage:
             if tags:
                 self.logger.debug(f"Updating tags for {image_path}\n{tags}")
                 with ExifToolHelper() as _eth:
-                    _eth.set_tags(
-                        [image_path],
-                        tags=tags,
-                        params=["-P", "-overwrite_original"]
-                    )
+                    for tag, val in tags.items():
+                        print(tag, val)
+                        if tag == "UserComment":
+                            val = val.replace(
+                                val[val.find("METADATA-START"):val.find("METADATA-END") + len("METADATA-END")], ""
+                            )
+                            print(val)
+                        # if isinstance(tags[tag], str):
+                        #     tags[tag] = tags[tag].encode('utf-8')
+                        _eth.set_tags(
+                            [image_path],
+                            tags={tag: val},
+                            params=["-m", "-u", "-U", "-P", "-overwrite_original"]
+                        )
+                    # _eth.set_tags(
+                    #     [image_path],
+                    #     tags=tags,
+                    #     params=["-m", "-u", "-U", "-P", "-overwrite_original"]
+                    # )
         except ExifToolExecuteError as exc:
+            print("Error", exc)
+            exit()
             self.logger.error(f"Failed to update tags for {image_path}:\n{exc}")
-            if self._regenerate():
-                self._update_tags(image_path, tags)
+            if not self.regenerated:
+                if self._regenerate():
+                    self._update_tags(image_path, tags)
             else:
                 self.valid = False
 
@@ -358,7 +376,11 @@ class TruImage:
                         data_dict = xmltodict.parse(user_comment)
                     except Exception:
                         # if we can't parse the user comment, add existing comment as a note
-                        data_dict = {"UserComment": {"note": user_comment}}
+                        if "METADATA-START" in user_comment:
+                            data_dict = {"UserComment": {}}
+                        else:
+                            data_dict = {"UserComment": {"note": user_comment}}
+
                     # make sure UserComment is at the root level
                     if "UserComment" not in data_dict:
                         data_dict["UserComment"] = data_dict
@@ -370,7 +392,7 @@ class TruImage:
 
                 # convert user comment to xml and add to tags
                 if "UserComment" in data_dict:
-                    tags["UserComment"] = dict2xml(data_dict, newlines=False)
+                    tags["UserComment"] = dict2xml(data_dict.get("UserComment"), newlines=False)
             if "geoDataExif" in self.json_data:
                 lat = self.json_data.get("geoDataExif").get("latitude")
                 lon = self.json_data.get("geoDataExif").get("longitude")
@@ -393,7 +415,7 @@ class TruImage:
                     tags["GPSAltitude"] = alt
                     # GPSAltitudeRef (0 for above sea level, 1 for below sea level)
                     tags["GPSAltitudeRef"] = 0 if alt > 0 else 1
-
+            if tags:
                 self._update_tags(image_path, tags)
 
     def convert(self, dest_ext: str):
