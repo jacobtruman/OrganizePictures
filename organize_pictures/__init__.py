@@ -142,6 +142,15 @@ class OrganizePictures:
                 hash_md5.update(chunk)
         return hash_md5.hexdigest()
 
+    @staticmethod
+    def _file_path(file_info):
+        """
+        File path for the given file info
+        :param file_info: Dict of file info containing dir and filename
+        :return:
+        """
+        return f"{file_info.get('dir')}/{file_info.get('filename')}{FILE_EXTS.get('image_preferred')}"
+
     def _get_image_hash(self, image_path):
         if image_path == self.current_image and self.current_hash is not None:
             return self.current_hash
@@ -369,12 +378,12 @@ class OrganizePictures:
             'dir': _dir,
             'filename': _filename,
         }
-        new_file_path = f"{_dir}/{_filename}{FILE_EXTS.get('image_preferred')}"
+        new_file_path = self._file_path(_new_file_info)
 
         if not os.path.isdir(_dir):
             self.logger.debug(f"Destination path does not exist, creating: {_dir}")
             os.makedirs(_dir)
-        if not os.path.exists(f"{_dir}/{_filename}{FILE_EXTS.get('image_preferred')}"):
+        if not os.path.exists(new_file_path):
             return _new_file_info
 
         self.logger.debug(f"Destination file already exists: {new_file_path}")
@@ -405,6 +414,8 @@ class OrganizePictures:
                     new_file_info = self._get_new_fileinfo(image)
                     if not new_file_info.get('duplicate'):
                         try:
+                            if image.ext.lower() in FILE_EXTS.get('image_convert'):
+                                image.convert(FILE_EXTS.get('image_preferred'))
                             copied = image.copy(new_file_info)
                             cleanup_files += copied.keys()
                             self.results['moved'] += len(copied)
@@ -414,6 +425,8 @@ class OrganizePictures:
                             self.results['failed'] += 1
                             self.logger.error(f"Failed to move file: {media_file}\n{exc}")
                     else:
+                        self.results['duplicate'] += 1
+                        self._insert_image_hash(self._file_path(new_file_info))
                         # file is already moved
                         self.logger.info(f"File already moved: {media_file} -> {new_file_info.get('path')}")
                         cleanup_files += image.files.values()
