@@ -414,13 +414,11 @@ class OrganizePictures:
                     new_file_info = self._get_new_fileinfo(image)
                     if not new_file_info.get('duplicate'):
                         try:
-                            if image.ext.lower() in FILE_EXTS.get('image_convert'):
-                                image.convert(FILE_EXTS.get('image_preferred'))
                             copied = image.copy(new_file_info)
                             cleanup_files += copied.keys()
                             self.results['moved'] += len(copied)
                             # add to db
-                            self._insert_image_hash(copied.image_path)
+                            self._insert_image_hash(copied[media_file])
                         except shutil.Error as exc:
                             self.results['failed'] += 1
                             self.logger.error(f"Failed to move file: {media_file}\n{exc}")

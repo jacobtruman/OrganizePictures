@@ -425,6 +425,7 @@ class TruImage:
             self._write_json_data_to_image(dest_file)
             # update image path
             self.image_path = dest_file
+            self.ext = dest_ext
         except Exception as exc:
             self.logger.error(f"Failed second conversion attempt via {method}: {self.image_path}\n{exc}")
             return False
@@ -447,6 +448,11 @@ class TruImage:
         if not os.path.isdir(dest_dir):
             self.logger.warning(f"Destination directory not found: {dest_dir}")
             os.makedirs(dest_dir)
+
+        if self.ext.lower() in FILE_EXTS.get('image_convert'):
+            # add the pre-converted file to be copied
+            files_to_copy[self.image_path] = f"{dest_dir}/{filename}{self.ext}"
+            self.convert(FILE_EXTS.get('image_preferred'))
 
         dest_file = f"{dest_dir}/{filename}{self.ext}"
         if not os.path.isfile(dest_file):
