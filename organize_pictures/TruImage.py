@@ -154,12 +154,14 @@ class TruImage:
                                 self.logger.error(
                                     f"Unable to convert date field using format {date_format}: {_date_field}\n{exc}"
                                 )
-                        break
                 if self._date_taken is None and "PNG:XMLcommagicmemoriesm4" in self.exif_data:
-                    tree = ET.fromstring(self.exif_data.get("PNG:XMLcommagicmemoriesm4"))
-                    if tree.attrib.get("creation") is not None:
-                        self.logger.info("Using m4 creation date")
-                        self._date_taken = datetime.strptime(tree.attrib.get("creation"), DATE_FORMATS.get("m4"))
+                    try:
+                        tree = ET.fromstring(self.exif_data.get("PNG:XMLcommagicmemoriesm4"))
+                        if tree.attrib.get("creation") is not None:
+                            self.logger.info("Using m4 creation date")
+                            self._date_taken = datetime.strptime(tree.attrib.get("creation"), DATE_FORMATS.get("m4"))
+                    except Exception as exc:
+                        self.logger.error(f"Unable to get m4 creation date:\n{exc}")
             except Exception as exc:
                 self.logger.error(f'Unable to get exif data for file: {self.image_path}:\n{exc}')
 
@@ -340,6 +342,8 @@ class TruImage:
                             tags=tags,
                             params=["-m", "-u", "-U", "-P", "-overwrite_original"]
                         )
+            # reset exif data
+            self._exif_data = None
         except ExifToolExecuteError as exc:
             self.logger.error(f"Failed to update tags for {image_path}:\n{exc}")
             if not self.regenerated:
