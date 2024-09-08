@@ -24,7 +24,7 @@ register_heif_opener()
 # pylint: disable=too-many-instance-attributes
 class TruImage:
 
-    def __init__(self, image_path, logger=None, verbose=False):
+    def __init__(self, image_path, json_file_path=None, logger=None, verbose=False):
         self.verbose = verbose
         self.dev_mode = False
         self._logger = None
@@ -33,6 +33,7 @@ class TruImage:
         self.image_path = image_path
         self._ext = None
         self._json_file_path = None
+        self.json_file_path = json_file_path
         self._json_data = None
         self._exif_data = None
         self._date_taken = None
@@ -119,7 +120,7 @@ class TruImage:
 
     @json_file_path.setter
     def json_file_path(self, value):
-        if not os.path.isfile(value):
+        if value and not os.path.isfile(value):
             self.logger.error(f"JSON file not found: {value}")
             raise FileNotFoundError(f"JSON file not found: {value}")
         self._json_file_path = value
@@ -455,14 +456,14 @@ class TruImage:
 
         if self.ext.lower() in FILE_EXTS.get('image_convert'):
             # add the pre-converted file to be copied
-            files_to_copy[self.image_path] = f"{dest_dir}/{filename}{self.ext}"
+            files_to_copy[self.image_path] = f"{dest_dir}/{filename}{self.ext.lower()}"
             self.convert(FILE_EXTS.get('image_preferred'))
 
-        dest_file = f"{dest_dir}/{filename}{self.ext}"
+        dest_file = f"{dest_dir}/{filename}{self.ext.lower()}"
         if not os.path.isfile(dest_file):
             files_to_copy[self.image_path] = dest_file
             if self.json_file_path:
-                dest_file = f"{dest_dir}/{filename}{self.ext}.json"
+                dest_file = f"{dest_dir}/{filename}{self.ext.lower()}.json"
                 if not os.path.isfile(dest_file):
                     files_to_copy[self.json_file_path] = dest_file
                 else:

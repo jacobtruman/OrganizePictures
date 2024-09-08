@@ -3,18 +3,15 @@ import json
 import os
 from datetime import datetime, timedelta
 import hashlib
+import pathlib
 import shutil
-import tempfile
 from glob import glob
 
 import sqlite3
 from exiftool import ExifToolHelper
 from pymediainfo import MediaInfo
-import ffmpeg
 from PIL import Image
 from pillow_heif import register_heif_opener
-import xmltodict
-from dict2xml import dict2xml
 
 from organize_pictures.TruImage import TruImage
 from organize_pictures.utils import (
@@ -57,7 +54,7 @@ class OrganizePictures:
         self.minus = minus
         self.verbose = verbose
 
-        self.results = {"moved": 0, "duplicate": 0, "failed": 0, "deleted": 0}
+        self.results = {"moved": 0, "duplicate": 0, "failed": 0, "invalid": 0, "deleted": 0}
 
         self.extensions = extensions
         if self.extensions is None:
@@ -151,24 +148,6 @@ class OrganizePictures:
         """
         return f"{file_info.get('dir')}/{file_info.get('filename')}{FILE_EXTS.get('image_preferred')}"
 
-    def _get_image_hash(self, image_path):
-        if image_path == self.current_image and self.current_hash is not None:
-            return self.current_hash
-        with tempfile.TemporaryDirectory() as temp_dir:
-            try:
-                self.logger.debug(f"Getting hash for {image_path}")
-                temp_file = f"{temp_dir}/{os.path.basename(image_path)}"
-                image = Image.open(image_path)
-                image.save(temp_file)
-                image.close()
-                image = Image.open(temp_file)
-                image_hash = hashlib.md5(image.tobytes()).hexdigest()
-                image.close()
-                return image_hash
-            except Exception:  # pylint: disable=broad-except
-                self.logger.error(f"Error opening image: {image_path}")
-                return None
-
     def _check_db_for_image_path(self, image_path):
         sql = f'SELECT * FROM image_hashes WHERE image_path = "{image_path}"'
         return self.dbc.execute(sql).fetchall()
@@ -184,9 +163,9 @@ class OrganizePictures:
         if not os.path.isfile(image_path):
             self.logger.error(f"Image path does not exist: {image_path}")
             return False
-        image_hash = self._get_image_hash(image_path)
-        if image_hash is not None:
-            sql = f'INSERT INTO image_hashes VALUES ("{image_path}","{image_hash}")'
+        image = TruImage(image_path=image_path, logger=self.logger)
+        if image.hash:
+            sql = f'INSERT INTO image_hashes VALUES ("{image_path}","{image.hash}")'
             self.dbc.execute(sql)
             self.current_hash = None
             return True
@@ -212,111 +191,51 @@ class OrganizePictures:
                     params=["-P", "-overwrite_original"]
                 )
 
-    # pylint: disable=too-many-branches
-    def _write_json_data_to_image(self, _file, _json_file=None):
-        if _json_file is None:
-            _json_file = self._get_json_file(_file)
-        if os.path.isfile(_json_file):
-            with ExifToolHelper() as eth:
-                metadata = (eth.get_metadata(_file) or [])[0]
-            data = self._load_json_file(_json_file)
-            if data is not None:
-                tags = {}
-                if "photoTakenTime" in data:
-                    _date = datetime.fromtimestamp(
-                        int(data.get("photoTakenTime").get("timestamp"))
-                    ).strftime(DATE_FORMATS.get("default"))
-                    for field in EXIF_DATE_FIELDS:
-                        tags[field] = _date
-                if "people" in data:
-                    user_comment = None
-                    people_dict = {"People": {"Person": [person.get("name") for person in data.get("people")]}}
-                    if "EXIF:UserComment" in metadata:
-                        user_comment = metadata.get("EXIF:UserComment")
-                    if user_comment:
-                        try:
-                            data_dict = xmltodict.parse(user_comment)
-                        except Exception:
-                            # if we can't parse the user comment, add existing comment as a note
-                            data_dict = {"UserComment": {"note": user_comment}}
-                        # make sure UserComment is at the root level
-                        if "UserComment" not in data_dict:
-                            data_dict["UserComment"] = data_dict
-                        # if people_comment is not in user_comment, add people_dict
-                        if dict2xml(people_dict, newlines=False) not in user_comment:
-                            data_dict["UserComment"].update(people_dict)
-                    else:
-                        data_dict = {"UserComment": people_dict}
+    def _get_file_paths(
+            self,
+            base_dir: str = '.',
+            extensions: list = None,
+            recursive: bool = True
+    ):
+        """
+        Get all files in the given path matching the given pattern and extensions
+        :param base_dir: Base directory to search
+        :param extensions: Extensions to search for
+        :param recursive:
+        :return:
+        """
+        if extensions is None:
+            extensions = self.extensions
+        return [
+            os.path.abspath(_file) for _file in sorted(glob(f"{base_dir}/**/*", recursive=recursive))
+            if pathlib.Path(_file).suffix.lower() in extensions
+        ]
 
-                    # convert user comment to xml and add to tags
-                    if "UserComment" in data_dict:
-                        tags["UserComment"] = dict2xml(data_dict, newlines=False)
-                if "geoDataExif" in data:
-                    lat = data.get("geoDataExif").get("latitude")
-                    lon = data.get("geoDataExif").get("longitude")
-                    alt = data.get("geoDataExif").get("altitude")
-                    if lat != 0 and lon != 0:
-                        # GPSLatitudeRef (S for negative, N for positive)
-                        if lat > 0:
-                            tags["GPSLatitude"] = lat
-                            tags["GPSLatitudeRef"] = "N"
-                        else:
-                            tags["GPSLatitude"] = -lat
-                            tags["GPSLatitudeRef"] = "S"
-                        # GPSLongitudeRef (W for negative, E for positive)
-                        if lon > 0:
-                            tags["GPSLongitude"] = lon
-                            tags["GPSLongitudeRef"] = "E"
-                        else:
-                            tags["GPSLongitude"] = -lon
-                            tags["GPSLongitudeRef"] = "W"
-                        tags["GPSAltitude"] = alt
-                        # GPSAltitudeRef (0 for above sea level, 1 for below sea level)
-                        tags["GPSAltitudeRef"] = 0 if alt > 0 else 1
+    def _get_images(self, path: str):
+        """
+        Get image objects for images in the given path. Check json files first for metadata to get matching image files,
+        since they don't always match.
+        :param path: Path to search for media files
+        :return:
+        """
+        images = {}
+        # process json files first
+        for json_file in self._get_file_paths(base_dir=path, extensions=['.json']):
+            # get json file data
+            json_data = self._load_json_file(json_file)
+            # get image file
+            media_file_path = f"{os.path.dirname(json_file)}/{json_data.get('title')}"
+            if pathlib.Path(media_file_path).suffix.lower() in self.extensions:
+                if os.path.isfile(media_file_path):
+                    images[media_file_path] = TruImage(image_path=media_file_path, json_file_path=json_file, logger=self.logger)
 
-                    self._update_tags(_file, tags, metadata)
+        # then process image files
+        for media_file_path in self._get_file_paths(base_dir=path):
+            # skip files found in json files
+            if media_file_path not in images:
+                images[media_file_path] = TruImage(image_path=media_file_path, logger=self.logger)
 
-    def _get_files(self, path: str):
-        files = []
-        paths = glob(f"{path}/*")
-        for file in paths:
-            if os.path.isfile(file):
-                ext = self._get_file_ext(file)
-                ext_lower = ext.lower()
-                if ext_lower in self.extensions:
-                    add = True
-                    if self.media_type is not None and ext_lower not in MEDIA_TYPES.get(self.media_type):
-                        add = False
-                    if add:
-                        files.append(file)
-            elif os.path.isdir(file):
-                files += self._get_files(file)
-        return sorted(files)
-
-    def _convert_video(self, _file: str, _new_file: str):
-        converted = False
-        if os.path.isfile(_new_file):
-            self.logger.info(f"Skipping conversion of \"{_file}\" to \"{_new_file}\" as it already exists")
-            converted = True
-        self.logger.info(f"Converting \"{_file}\" to \"{_new_file}\"")
-        stream = ffmpeg.input(_file)
-        stream = ffmpeg.output(
-            stream,
-            _new_file,
-            acodec="aac",
-            vcodec="h264",
-            map_metadata=0,
-            metadata=f"comment=Converted {_file} to {_new_file}",
-            loglevel="verbose" if self.verbose else "quiet"
-        )
-        _, err = ffmpeg.run(stream)
-        if err is None:
-            self.results['moved'] += 1
-            self.logger.info(f"Successfully converted \"{_file}\" to \"{_new_file}\"")
-            converted = True
-        else:
-            self.logger.error(f"Failed to convert \"{_file}\" to \"{_new_file}\"")
-        return converted
+        return dict(sorted(images.items()))
 
     def _media_file_matches(self, source_file: str, dest_file: str):
         matches = False
@@ -387,7 +306,7 @@ class OrganizePictures:
             return _new_file_info
 
         self.logger.debug(f"Destination file already exists: {new_file_path}")
-        image2 = TruImage(new_file_path, self.logger)
+        image2 = TruImage(image_path=new_file_path, logger=self.logger)
         if image2.valid and image.hash == image2.hash:
             _new_file_info['duplicate'] = True
             return _new_file_info
@@ -397,43 +316,46 @@ class OrganizePictures:
 
     def run(self):
         cleanup_files = []
-        files = self._get_files(self.source_dir)
-        for index, media_file in enumerate(files, start=1):
-            image = TruImage(media_file, self.logger)
-            if image.valid:
-                self.logger.info(
-                    f"Processing file {index} / {len(files)}:\n\t{media_file}"
-                )
-                if self._check_db_for_image_path_hash(image):
-                    self.logger.debug(f"Hash for {media_file} already in db")
-                    self.results['duplicate'] += 1
-                    cleanup_files += image.files.values()
-                    continue
+        images = self._get_images(self.source_dir)
+        image_count = len(images)
+        for index, image in enumerate(images.values(), 1):
+            media_file = image.image_path
+            if not image.valid:
+                self.logger.error(f"Invalid image: {media_file}")
+                self.results['invalid'] += 1
+                continue
+            self.logger.info(
+                f"Processing file {index} / {image_count}:\n\t{media_file}"
+            )
+            if self._check_db_for_image_path_hash(image):
+                self.logger.debug(f"Hash for {media_file} already in db")
+                self.results['duplicate'] += 1
+                cleanup_files += image.files.values()
+                continue
 
-                if image.date_taken is not None:
-                    new_file_info = self._get_new_fileinfo(image)
-                    if not new_file_info.get('duplicate'):
-                        try:
-                            copied = image.copy(new_file_info)
-                            cleanup_files += copied.keys()
-                            self.results['moved'] += len(copied)
-                            # add to db
-                            self._insert_image_hash(image.image_path)
-                        except shutil.Error as exc:
-                            self.results['failed'] += 1
-                            self.logger.error(f"Failed to move file: {media_file}\n{exc}")
-                    else:
-                        self.results['duplicate'] += 1
-                        self._insert_image_hash(self._file_path(new_file_info))
-                        # file is already moved
-                        self.logger.info(f"File already moved: {media_file} -> {new_file_info.get('path')}")
-                        cleanup_files += image.files.values()
-            else:
-                print("Not a valid image file - maybe video?")
-                # TODO: video object processing
-                # if new_file_info['ext'] in MEDIA_TYPES.get('video'):
-                #     if self._convert_video(media_file, new_file_info['path']):
-                #         cleanup_files.append(media_file)
+            if image.date_taken is not None:
+                new_file_info = self._get_new_fileinfo(image)
+                if not new_file_info.get('duplicate'):
+                    try:
+                        copied = image.copy(new_file_info)
+                        cleanup_files += copied.keys()
+                        self.results['moved'] += len(copied)
+                        # add to db
+                        self._insert_image_hash(image.image_path)
+                    except shutil.Error as exc:
+                        self.results['failed'] += 1
+                        self.logger.error(f"Failed to move file: {media_file}\n{exc}")
+                else:
+                    self.results['duplicate'] += 1
+                    self._insert_image_hash(self._file_path(new_file_info))
+                    # file is already moved
+                    self.logger.info(f"File already moved: {media_file} -> {new_file_info.get('path')}")
+                    cleanup_files += image.files.values()
+
+            # TODO: video object processing
+            # if new_file_info['ext'] in MEDIA_TYPES.get('video'):
+            #     if self._convert_video(media_file, new_file_info['path']):
+            #         cleanup_files.append(media_file)
 
         if cleanup_files and self.cleanup:
             for cleanup_file in cleanup_files:
