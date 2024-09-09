@@ -450,20 +450,24 @@ class TruImage:
         files_to_copy = {}
         dest_dir = dest_info.get("dir")
         filename = dest_info.get("filename")
+        ext_lower = self.ext.lower()
         if not os.path.isdir(dest_dir):
             self.logger.warning(f"Destination directory not found: {dest_dir}")
             os.makedirs(dest_dir)
 
-        if self.ext.lower() in FILE_EXTS.get('image_convert'):
+        if ext_lower in FILE_EXTS.get('image_convert'):
             # add the pre-converted file to be copied
-            files_to_copy[self.image_path] = f"{dest_dir}/{filename}{self.ext.lower()}"
+            files_to_copy[self.image_path] = f"{dest_dir}/{filename}{ext_lower}"
             self.convert(FILE_EXTS.get('image_preferred'))
+            ext_lower = self.ext.lower()
+        elif ext_lower in FILE_EXTS.get('image_change'):
+            ext_lower = FILE_EXTS.get('image_preferred')
 
-        dest_file = f"{dest_dir}/{filename}{self.ext.lower()}"
+        dest_file = f"{dest_dir}/{filename}{ext_lower}"
         if not os.path.isfile(dest_file):
             files_to_copy[self.image_path] = dest_file
             if self.json_file_path:
-                dest_file = f"{dest_dir}/{filename}{self.ext.lower()}.json"
+                dest_file = f"{dest_dir}/{filename}{ext_lower}.json"
                 if not os.path.isfile(dest_file):
                     files_to_copy[self.json_file_path] = dest_file
                 else:
