@@ -220,17 +220,29 @@ class OrganizePictures:
         """
         images = {}
         # process json files first
-        for json_file in self._get_file_paths(base_dir=path, extensions=['.json']):
+        self.logger.debug(f"Processing json files in {path}")
+        json_files = self._get_file_paths(base_dir=path, extensions=['.json'])
+        json_files_count = len(json_files)
+        for index, json_file in enumerate(json_files, 1):
+            self.logger.debug(f"Pre-processing json file {index} / {json_files_count}: {json_file}")
             # get json file data
             json_data = self._load_json_file(json_file)
             # get image file
             media_file_path = f"{os.path.dirname(json_file)}/{json_data.get('title')}"
             if pathlib.Path(media_file_path).suffix.lower() in self.extensions:
                 if os.path.isfile(media_file_path):
-                    images[media_file_path] = TruImage(image_path=media_file_path, json_file_path=json_file, logger=self.logger)
+                    images[media_file_path] = TruImage(
+                        image_path=media_file_path,
+                        json_file_path=json_file,
+                        logger=self.logger
+                    )
 
         # then process image files
-        for media_file_path in self._get_file_paths(base_dir=path):
+        self.logger.debug(f"Processing image files in {path}")
+        media_files = self._get_file_paths(base_dir=path)
+        mnedia_files_count = len(media_files)
+        for index, media_file_path in enumerate(media_files, 1):
+            self.logger.debug(f"Pre-processing media file {index} / {mnedia_files_count}: {media_file_path}")
             # skip files found in json files
             if media_file_path not in images:
                 images[media_file_path] = TruImage(image_path=media_file_path, logger=self.logger)
