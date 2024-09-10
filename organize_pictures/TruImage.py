@@ -427,10 +427,10 @@ class TruImage:
             image = Image.open(self.image_path)
             image.convert('RGB').save(dest_file)
             image.close()
-            self._write_json_data_to_image(dest_file)
             # update image path
             self.image_path = dest_file
             self.ext = dest_ext
+            self._write_json_data_to_image()
         except Exception as exc:
             self.logger.error(f"Failed second conversion attempt via {method}: {self.image_path}\n{exc}")
             return False
