@@ -337,8 +337,8 @@ class OrganizePictures:
                         copied = image.copy(new_file_info)
                         cleanup_files += copied.keys()
                         self.results['moved'] += len(copied)
-                        # add to db
-                        self._insert_image_hash(image.image_path)
+                        # add dest image path and hash to db
+                        self._insert_image_hash(copied[image.image_path])
                     except shutil.Error as exc:
                         self.results['failed'] += 1
                         self.logger.error(f"Failed to move file: {media_file}\n{exc}")
