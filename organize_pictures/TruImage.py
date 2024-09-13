@@ -276,7 +276,7 @@ class TruImage:
         image_animation = None
         for ext in MEDIA_TYPES.get('video'):
             _file = self.image_path.replace(self.ext, ext)
-            _file_upper = _file.replace(self.ext, ext.upper())
+            _file_upper = _file.replace(ext, ext.upper())
             if os.path.isfile(_file):
                 image_animation = _file
             elif os.path.isfile(_file_upper):
