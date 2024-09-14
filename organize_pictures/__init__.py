@@ -222,16 +222,22 @@ class OrganizePictures:
         # then process image files
         self.logger.debug(f"Pre-processing image files in {path}")
         media_files = self._get_file_paths(base_dir=path)
-        mnedia_files_count = len(media_files)
+        media_files_count = len(media_files)
         for index, media_file_path in enumerate(media_files, 1):
-            if "(" in media_file_path or ")" in media_file_path or len(os.path.basename(media_file_path)) >= 46:
+            file_base_name = pathlib.Path(media_file_path).stem
+            if "(" in file_base_name or ")" in file_base_name or len(os.path.basename(media_file_path)) >= 46:
                 # manual intervention required
-                self.logger.error(f"Manual intervention required for file: {media_file_path}")
+                self.logger.error(
+                    f"Manual intervention required for file (filename inconsistencies): {media_file_path}"
+                )
                 continue
-            self.logger.debug(f"Pre-processing media file {index} / {mnedia_files_count}: {media_file_path}")
+            self.logger.debug(f"Pre-processing media file {index} / {media_files_count}: {media_file_path}")
             # skip files found in json files
-            if media_file_path not in images:
-                images[media_file_path] = TruImage(image_path=media_file_path, logger=self.logger)
+            if file_base_name not in images:
+                images[file_base_name] = TruImage(image_path=media_file_path, logger=self.logger)
+            else:
+                self.logger.error(f"Manual intervention required for file (duplicate filename base): {media_file_path}")
+                del images[file_base_name]
         return dict(sorted(images.items()))
 
     def _media_file_matches(self, source_file: str, dest_file: str):

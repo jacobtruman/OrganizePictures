@@ -3,6 +3,7 @@ import hashlib
 import json
 import mimetypes
 import os
+import pathlib
 import shutil
 import tempfile
 import xml.etree.ElementTree as ET
@@ -78,7 +79,7 @@ class TruImage:
     @property
     def ext(self):
         if self._ext is None:
-            _, ext = os.path.splitext(os.path.basename(self.image_path))
+            ext = pathlib.Path(self.image_path).suffix
             self._ext = ext
         return self._ext
 
@@ -286,7 +287,7 @@ class TruImage:
 
         if image_animation:
             # convert video to preferred format
-            _, ext = os.path.splitext(os.path.basename(image_animation))
+            ext = pathlib.Path(image_animation).suffix
             if ext is not FILE_EXTS.get('video_preferred'):
                 _new_file = image_animation.replace(ext, FILE_EXTS.get('video_preferred'))
                 if self._convert_video(image_animation, _new_file):
@@ -421,6 +422,9 @@ class TruImage:
 
     def convert(self, dest_ext: str):
         dest_file = self.image_path.replace(self.ext, dest_ext)
+        if os.path.isfile(dest_file):
+            self.logger.error(f"Not converting {self.image_path} to {dest_ext} as it already exists")
+            return False
         self.logger.debug(f"Converting file:\n\tSource: {self.image_path}\n\tDestination: {dest_file}")
         method = "pillow"
         try:
