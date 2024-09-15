@@ -324,7 +324,7 @@ class TruImage:
             for _tag in del_tags:
                 del tags[_tag]
             if tags:
-                self.logger.debug(f"Updating tags for {image_path}\n{tags}")
+                self.logger.debug(f"Updating tags for {image_path}\n\t{tags}")
                 with ExifToolHelper() as _eth:
                     if self.verbose:
                         for tag, val in tags.items():
