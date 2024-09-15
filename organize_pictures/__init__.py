@@ -51,6 +51,7 @@ class OrganizePictures:
         self.cleanup = cleanup
         self.sub_dirs = sub_dirs
         self.offset = offset or self.init_offset()
+        self.excluded = []
         self.minus = minus
         self.verbose = verbose
 
@@ -234,11 +235,12 @@ class OrganizePictures:
                 continue
             self.logger.debug(f"Pre-processing media file {index} / {media_files_count}: {media_file_path}")
             # skip files found in json files
-            if file_base_name not in images:
+            if file_base_name not in images and file_base_name not in self.excluded:
                 images[file_base_name] = TruImage(image_path=media_file_path, logger=self.logger)
             else:
                 self.logger.error(f"Manual intervention required for file (duplicate filename base): {media_file_path}")
                 del images[file_base_name]
+                self.excluded.append(file_base_name)
                 self.results['manual'] += 1
         return dict(sorted(images.items()))
 
