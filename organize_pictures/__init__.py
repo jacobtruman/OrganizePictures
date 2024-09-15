@@ -54,7 +54,7 @@ class OrganizePictures:
         self.minus = minus
         self.verbose = verbose
 
-        self.results = {"moved": 0, "duplicate": 0, "failed": 0, "invalid": 0, "deleted": 0}
+        self.results = {"moved": 0, "duplicate": 0, "failed": 0, "manual": 0, "invalid": 0, "deleted": 0}
 
         self.extensions = extensions
         if self.extensions is None:
@@ -230,6 +230,7 @@ class OrganizePictures:
                 self.logger.error(
                     f"Manual intervention required for file (filename inconsistencies): {media_file_path}"
                 )
+                self.results['manual'] += 1
                 continue
             self.logger.debug(f"Pre-processing media file {index} / {media_files_count}: {media_file_path}")
             # skip files found in json files
@@ -238,6 +239,7 @@ class OrganizePictures:
             else:
                 self.logger.error(f"Manual intervention required for file (duplicate filename base): {media_file_path}")
                 del images[file_base_name]
+                self.results['manual'] += 1
         return dict(sorted(images.items()))
 
     def _media_file_matches(self, source_file: str, dest_file: str):

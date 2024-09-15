@@ -10,7 +10,7 @@ exclude = ["docs*", "tests*"]
 
 [project]
 name = 'OrganizePictures'
-version = '0.9.4'
+version = '0.9.5'
 description='A tool for organizing pictures into folders by date.'
 
 authors = [
