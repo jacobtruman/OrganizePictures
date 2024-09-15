@@ -311,6 +311,7 @@ class OrganizePictures:
         self.logger.debug(f"Destination file already exists: {new_file_path}")
         image2 = TruImage(image_path=new_file_path, logger=self.logger)
         if image2.valid and image.hash == image2.hash:
+            self.logger.debug(f"[DUPLICATE] Destination file matches source file: {new_file_path}")
             _new_file_info['duplicate'] = True
             return _new_file_info
         # increment 1 second and try again
@@ -331,7 +332,7 @@ class OrganizePictures:
                 f"Processing file {index} / {image_count}:\n\t{media_file}"
             )
             if self._check_db_for_image_path_hash(image):
-                self.logger.debug(f"Hash for {media_file} already in db")
+                self.logger.debug(f"[DUPLICATE] Hash for {media_file} already in db")
                 self.results['duplicate'] += 1
                 cleanup_files += image.files.values()
                 continue
@@ -349,6 +350,7 @@ class OrganizePictures:
                         self.results['failed'] += 1
                         self.logger.error(f"Failed to move file: {media_file}\n{exc}")
                 else:
+                    self.logger.debug(f"[DUPLICATE] File already exists: {media_file} -> {new_file_info.get('path')}")
                     self.results['duplicate'] += 1
                     self._insert_image_hash(self._file_path(new_file_info))
                     # file is already moved
