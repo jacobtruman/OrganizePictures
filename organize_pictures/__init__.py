@@ -150,11 +150,11 @@ class OrganizePictures:
 
     def _check_db_for_image_path(self, image_path):
         sql = f'SELECT * FROM image_hashes WHERE image_path = "{image_path}"'
-        return self.dbc.execute(sql).fetchall()
+        return dict(self.dbc.execute(sql).fetchall())
 
     def _check_db_for_image_hash(self, image_hash):
         sql = f'SELECT * FROM image_hashes WHERE hash = "{image_hash}"'
-        return self.dbc.execute(sql).fetchall()
+        return dict(self.dbc.execute(sql).fetchall())
 
     def _check_db_for_image_path_hash(self, image):
         return self._check_db_for_image_hash(image.hash)
@@ -331,8 +331,8 @@ class OrganizePictures:
             self.logger.info(
                 f"Processing file {index} / {image_count}:\n\t{media_file}"
             )
-            if self._check_db_for_image_path_hash(image):
-                self.logger.debug(f"[DUPLICATE] Hash for {media_file} already in db")
+            if rec := self._check_db_for_image_path_hash(image):
+                self.logger.debug(f"[DUPLICATE] Hash for {media_file} already in db: {rec}")
                 self.results['duplicate'] += 1
                 cleanup_files += image.files.values()
                 continue
