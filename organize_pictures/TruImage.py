@@ -6,86 +6,53 @@ import os
 import pathlib
 import shutil
 import tempfile
-import xml.etree.ElementTree as ET
 
 from dict2xml import dict2xml
-from exiftool import ExifToolHelper
 from exiftool.exceptions import ExifToolExecuteError
-import ffmpeg
 import magic
 from PIL import Image
 from pillow_heif import register_heif_opener
 import xmltodict
 
-from organize_pictures.utils import get_logger, MEDIA_TYPES, EXIF_DATE_FIELDS, DATE_FORMATS, FILE_EXTS
+from organize_pictures.utils import MEDIA_TYPES, EXIF_DATE_FIELDS, DATE_FORMATS, FILE_EXTS
+from organize_pictures.TruMedia import TruMedia
 
 register_heif_opener()
 
 
 # pylint: disable=too-many-instance-attributes
-class TruImage:
+class TruImage(TruMedia):
 
-    def __init__(self, image_path, json_file_path=None, logger=None, verbose=False):
-        self.verbose = verbose
+    def __init__(self, media_path, json_file_path=None, logger=None, verbose=False):
+        super().__init__(media_path=media_path, logger=logger, verbose=verbose)
         self.dev_mode = False
-        self._logger = None
-        self.logger = logger
-        self._image_path = None
-        self.image_path = image_path
-        self._ext = None
         self._json_file_path = None
         self.json_file_path = json_file_path
         self._json_data = None
-        self._exif_data = None
-        self._date_taken = None
-        self._hash = None
         self._animation = None
         self.regenerated = False
+
+    @property
+    def valid(self):
+        return self._valid
+
+    @valid.setter
+    def valid(self, _):
         self.valid = self.ext.lower() in MEDIA_TYPES.get('image')
         if self.valid:
             self._reconcile_mime_type()
         if self.valid:
-            self._write_json_data_to_image()
+            self._write_json_data_to_media()
 
     @property
-    def image_path(self):
-        return self._image_path
-
-    @image_path.setter
-    def image_path(self, value):
-        if not os.path.isfile(value):
-            self.logger.error(f"Image not found: {value}")
-            raise FileNotFoundError(f"Image not found: {value}")
-        self._image_path = value
+    def media_type(self):
+        if self._media_type is None:
+            self._media_type = "image"
+        return self._media_type
 
     @property
-    def logger(self):
-        if self._logger is None:
-            self._logger = get_logger()
-        return self._logger
-
-    @logger.setter
-    def logger(self, value):
-        if value is None:
-            self._logger = get_logger()
-        self._logger = value
-
-    @property
-    def hash(self):
-        if self._hash is None:
-            self._get_image_hash()
-        return self._hash
-
-    @property
-    def ext(self):
-        if self._ext is None:
-            ext = pathlib.Path(self.image_path).suffix
-            self._ext = ext
-        return self._ext
-
-    @ext.setter
-    def ext(self, value):
-        self._ext = value
+    def date_fields(self) -> list:
+        return EXIF_DATE_FIELDS
 
     @property
     def files(self):
@@ -94,28 +61,21 @@ class TruImage:
         :return:
         """
         return {
-            "image": self.image_path,
+            "image": self.media_path,
             "json": self.json_file_path,
             "animation": self.animation
         }
 
     @property
-    def exif_data(self):
-        if self._exif_data is None:
-            with ExifToolHelper() as eth:
-                self._exif_data = (eth.get_metadata(self.image_path) or [])[0]
-        return self._exif_data
-
-    @property
     def json_file_path(self):
         if self._json_file_path is None:
-            if "(" in self.image_path and ")" in self.image_path:
-                start = self.image_path.find("(")
-                end = self.image_path.find(")")
-                base_file = self.image_path[:start]
-                file_num = self.image_path[start + 1:end]
+            if "(" in self.media_path and ")" in self.media_path:
+                start = self.media_path.find("(")
+                end = self.media_path.find(")")
+                base_file = self.media_path[:start]
+                file_num = self.media_path[start + 1:end]
                 _file = f"{base_file}{self.ext}({file_num})"
-            json_file = f"{self.image_path}.json"
+            json_file = f"{self.media_path}.json"
             self._json_file_path = json_file if os.path.isfile(json_file) else None
         return self._json_file_path
 
@@ -139,59 +99,8 @@ class TruImage:
             self._animation = self._find_image_animation()
         return self._animation
 
-    @property
-    def date_taken(self):
-        # pylint: disable=too-many-nested-blocks
-        if self._date_taken is None:
-            try:
-                for exif_date_field in EXIF_DATE_FIELDS:
-                    _date_field = f"EXIF:{exif_date_field}"
-                    if _date_field in self.exif_data:
-                        self.logger.info(f"Using date field: {_date_field}")
-                        for date_format in DATE_FORMATS.values():
-                            try:
-                                self._date_taken = datetime.strptime(self.exif_data.get(_date_field), date_format)
-                                break
-                            except Exception as exc:
-                                self.logger.error(
-                                    f"Unable to convert date field using format {date_format}: {_date_field}\n{exc}"
-                                )
-                if self._date_taken is None and "PNG:XMLcommagicmemoriesm4" in self.exif_data:
-                    try:
-                        tree = ET.fromstring(self.exif_data.get("PNG:XMLcommagicmemoriesm4"))
-                        if tree.attrib.get("creation") is not None:
-                            self.logger.info("Using m4 creation date")
-                            self._date_taken = datetime.strptime(tree.attrib.get("creation"), DATE_FORMATS.get("m4"))
-                    except Exception as exc:
-                        self.logger.error(f"Unable to get m4 creation date:\n{exc}")
-            except Exception as exc:
-                self.logger.error(f'Unable to get exif data for file: {self.image_path}:\n{exc}')
-
-            if self._date_taken is None:
-                self.logger.error(f"Unable to determine date taken for {self.image_path}")
-
-            # if self.offset != self.init_offset():
-            #     # update date object with offset
-            #     multiplier = 1
-            #     if self.minus:
-            #         multiplier = -1
-            #     date_time_obj = datetime(
-            #         year=(date_time_obj.year + (self.offset.get("Y") * multiplier)),
-            #         month=(date_time_obj.month + (self.offset.get("M") * multiplier)),
-            #         day=(date_time_obj.day + (self.offset.get("D") * multiplier)),
-            #         hour=(date_time_obj.hour + (self.offset.get("h") * multiplier)),
-            #         minute=(date_time_obj.minute + (self.offset.get("m") * multiplier)),
-            #         second=(date_time_obj.second + (self.offset.get("s") * multiplier)),
-            #     )
-
-        return self._date_taken
-
-    @date_taken.setter
-    def date_taken(self, value: datetime):
-        self._date_taken = value
-        self.logger.info(f"Setting date taken to {value}")
-        _date = value.strftime(DATE_FORMATS.get("default"))
-        self._update_tags(self.image_path, {field: _date for field in EXIF_DATE_FIELDS})
+    def _date_field(self, date_field: str):
+        return f"EXIF:{date_field}"
 
     def _regenerate(self):
         """
@@ -199,29 +108,29 @@ class TruImage:
         :return:
         """
         try:
-            self.logger.warning(f"Regenerating image: {self.image_path}")
+            self.logger.warning(f"Regenerating image: {self.media_path}")
             # get exif data
             exif_data = self.exif_data
             # regenerate image
-            Image.open(self.image_path).save(self.image_path)
+            Image.open(self.media_path).save(self.media_path)
             self.regenerated = True
             # update exif data
             self.logger.debug("Image regenerated; trying to rewrite exif data")
             tags = {tag.replace("EXIF:", ""): value for tag, value in exif_data.items() if tag.startswith("EXIF:")}
-            self._update_tags(image_path=self.image_path, tags=tags)
-            self.logger.info(f"Successfully regenerated image: {self.image_path}")
+            self._update_tags(media_path=self.media_path, tags=tags)
+            self.logger.info(f"Successfully regenerated image: {self.media_path}")
             return True
         except Exception as exc:
-            self.logger.error(f"Failed to regenerate image: {self.image_path}\n{exc}")
+            self.logger.error(f"Failed to regenerate image: {self.media_path}\n{exc}")
             return False
 
     def _reconcile_mime_type(self):
-        mime_guess = mimetypes.guess_type(self.image_path)[0]
-        mime_actual = magic.from_file(self.image_path, mime=True)
+        mime_guess = mimetypes.guess_type(self.media_path)[0]
+        mime_actual = magic.from_file(self.media_path, mime=True)
 
         if not mime_actual.startswith("image/"):
             if self._regenerate():
-                mime_actual = magic.from_file(self.image_path, mime=True)
+                mime_actual = magic.from_file(self.media_path, mime=True)
 
         if not mime_actual.startswith("image/"):
             self.valid = False
@@ -229,9 +138,9 @@ class TruImage:
             file_updates = {}
             _mt = mimetypes.MimeTypes()
             new_ext = _mt.types_map_inv[1].get(mime_actual)[0]
-            new_path = self.image_path.replace(self.ext, new_ext)
+            new_path = self.media_path.replace(self.ext, new_ext)
             self.ext = new_ext
-            file_updates["image_path"] = new_path
+            file_updates["media_path"] = new_path
             self.logger.error(f"Mimetype does not match filetype: {mime_guess} != {mime_actual}")
 
             if self.json_file_path and os.path.isfile(self.json_file_path):
@@ -248,35 +157,10 @@ class TruImage:
                     shutil.move(source, value)
                     setattr(self, key, value)
 
-    def _convert_video(self, _file: str, _new_file: str):
-        converted = False
-        if os.path.isfile(_new_file):
-            self.logger.info(f"Skipping conversion of \"{_file}\" to \"{_new_file}\" as it already exists")
-            converted = True
-        else:
-            self.logger.info(f"Converting \"{_file}\" to \"{_new_file}\"")
-            stream = ffmpeg.input(_file)
-            stream = ffmpeg.output(
-                stream,
-                _new_file,
-                acodec="aac",
-                vcodec="h264",
-                map_metadata=0,
-                metadata=f"comment=Converted {_file} to {_new_file}",
-                loglevel="verbose" if self.verbose else "quiet"
-            )
-            _, err = ffmpeg.run(stream)
-            if err is None:
-                self.logger.info(f"Successfully converted \"{_file}\" to \"{_new_file}\"")
-                converted = True
-            else:
-                self.logger.error(f"Failed to convert \"{_file}\" to \"{_new_file}\"")
-        return converted
-
     def _find_image_animation(self):
         image_animation = None
         for ext in MEDIA_TYPES.get('video'):
-            _file = self.image_path.replace(self.ext, ext)
+            _file = self.media_path.replace(self.ext, ext)
             _file_upper = _file.replace(ext, ext.upper())
             if os.path.isfile(_file):
                 image_animation = _file
@@ -295,69 +179,26 @@ class TruImage:
 
         return image_animation
 
-    def _get_image_hash(self):
+    def _get_media_hash(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             try:
-                self.logger.debug(f"Getting hash for {self.image_path}")
-                temp_file = f"{temp_dir}/{os.path.basename(self.image_path)}"
-                image = Image.open(self.image_path)
+                self.logger.debug(f"Getting hash for {self.media_path}")
+                temp_file = f"{temp_dir}/{os.path.basename(self.media_path)}"
+                image = Image.open(self.media_path)
                 image.save(temp_file)
                 image.close()
                 image = Image.open(temp_file)
-                image_hash = hashlib.md5(image.tobytes()).hexdigest()
+                media_hash = hashlib.md5(image.tobytes()).hexdigest()
                 image.close()
-                self._hash = image_hash
+                self._hash = media_hash
             except Exception:  # pylint: disable=broad-except
-                self.logger.error(f"Error opening image: {self.image_path}")
+                self.logger.error(f"Error opening image: {self.media_path}")
                 self._hash = None
 
-    def _update_tags(self, image_path: str, tags: dict):
-        try:
-            del_tags = []
-            for _field, _value in tags.items():
-                if isinstance(_value, str):
-                    _value = _value.encode('ascii', 'ignore').decode('ascii')
-                    tags[_field] = _value
-                exif_field = f"EXIF:{_field}"
-                if exif_field in self.exif_data and self.exif_data.get(exif_field) == _value:
-                    del_tags.append(_field)
-            for _tag in del_tags:
-                del tags[_tag]
-            if tags:
-                self.logger.debug(f"Updating tags for {image_path}\n\t{tags}")
-                with ExifToolHelper() as _eth:
-                    if self.verbose:
-                        for tag, val in tags.items():
-                            self.logger.debug(f"Tag [{tag}]: {val}")
-                            if tag == "UserComment":
-                                val = val.replace(
-                                    val[val.find("METADATA-START"):val.find("METADATA-END") + len("METADATA-END")], ""
-                                )
-                            _eth.set_tags(
-                                [image_path],
-                                tags={tag: val},
-                                params=["-m", "-u", "-U", "-P", "-overwrite_original"]
-                            )
-                    else:
-                        _eth.set_tags(
-                            [image_path],
-                            tags=tags,
-                            params=["-m", "-u", "-U", "-P", "-overwrite_original"]
-                        )
-            # reset exif data
-            self._exif_data = None
-        except ExifToolExecuteError as exc:
-            self.logger.error(f"Failed to update tags for {image_path}:\n{exc}")
-            if not self.regenerated:
-                if self._regenerate():
-                    self._update_tags(image_path, tags)
-            else:
-                self.valid = False
-
     # pylint: disable=too-many-branches
-    def _write_json_data_to_image(self, image_path=None):
-        if image_path is None:
-            image_path = self.image_path
+    def _write_json_data_to_media(self, media_path=None):
+        if media_path is None:
+            media_path = self.media_path
         if self.json_data:
             tags = {}
             if "photoTakenTime" in self.json_data:
@@ -418,28 +259,39 @@ class TruImage:
                     # GPSAltitudeRef (0 for above sea level, 1 for below sea level)
                     tags["GPSAltitudeRef"] = 0 if alt > 0 else 1
             if tags:
-                self._update_tags(image_path, tags)
+                self._update_tags(media_path, tags)
+
+    def _update_tags(self, media_path: str, tags: dict):
+        try:
+            super()._update_tags(media_path, tags)
+        except ExifToolExecuteError as exc:
+            self.logger.error(f"Failed to update tags for {media_path}:\n{exc}")
+            if not self.regenerated:
+                if self._regenerate():
+                    self._update_tags(media_path, tags)
+            else:
+                self.valid = False
 
     def convert(self, dest_ext: str):
-        dest_file = self.image_path.replace(self.ext, dest_ext)
+        dest_file = self.media_path.replace(self.ext, dest_ext)
         if os.path.isfile(dest_file):
-            self.logger.error(f"Not converting {self.image_path} to {dest_ext} as it already exists")
+            self.logger.error(f"Not converting {self.media_path} to {dest_ext} as it already exists")
             return False
-        self.logger.debug(f"Converting file:\n\tSource: {self.image_path}\n\tDestination: {dest_file}")
+        self.logger.debug(f"Converting file:\n\tSource: {self.media_path}\n\tDestination: {dest_file}")
         method = "pillow"
         try:
-            image = Image.open(self.image_path)
+            image = Image.open(self.media_path)
             image.convert('RGB').save(dest_file)
             image.close()
             # update image path
-            self.image_path = dest_file
+            self.media_path = dest_file
             self.ext = dest_ext
-            self._write_json_data_to_image()
+            self._write_json_data_to_media()
         except Exception as exc:
-            self.logger.error(f"Failed second conversion attempt via {method}: {self.image_path}\n{exc}")
+            self.logger.error(f"Failed second conversion attempt via {method}: {self.media_path}\n{exc}")
             return False
         self.logger.debug(
-            f"Successfully converted file via {method}:\n\tSource: {self.image_path}\n\tDestination: {dest_file}"
+            f"Successfully converted file via {method}:\n\tSource: {self.media_path}\n\tDestination: {dest_file}"
         )
         return True
 
@@ -451,17 +303,15 @@ class TruImage:
             filename: destination filename without extension
         :return: dict of files copied
         """
+        super().copy(dest_info)
         files_to_copy = {}
         dest_dir = dest_info.get("dir")
         filename = dest_info.get("filename")
         ext_lower = self.ext.lower()
-        if not os.path.isdir(dest_dir):
-            self.logger.warning(f"Destination directory not found: {dest_dir}")
-            os.makedirs(dest_dir)
 
         if ext_lower in FILE_EXTS.get('image_convert'):
             # add the pre-converted file to be copied
-            files_to_copy[self.image_path] = f"{dest_dir}/{filename}{ext_lower}"
+            files_to_copy[self.media_path] = f"{dest_dir}/{filename}{ext_lower}"
             self.convert(FILE_EXTS.get('image_preferred'))
             ext_lower = self.ext.lower()
         elif ext_lower in FILE_EXTS.get('image_change'):
@@ -469,7 +319,7 @@ class TruImage:
 
         dest_file = f"{dest_dir}/{filename}{ext_lower}"
         if not os.path.isfile(dest_file):
-            files_to_copy[self.image_path] = dest_file
+            files_to_copy[self.media_path] = dest_file
             if self.json_file_path:
                 dest_file = f"{dest_dir}/{filename}{ext_lower}.json"
                 if not os.path.isfile(dest_file):
