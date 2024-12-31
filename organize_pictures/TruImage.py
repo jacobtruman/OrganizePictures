@@ -1,6 +1,5 @@
 from datetime import datetime
 import hashlib
-import json
 import mimetypes
 import os
 import pathlib
@@ -24,13 +23,10 @@ register_heif_opener()
 class TruImage(TruMedia):
 
     def __init__(self, media_path, json_file_path=None, logger=None, verbose=False):
-        super().__init__(media_path=media_path, logger=logger, verbose=verbose)
+        super().__init__(media_path=media_path, json_file_path=json_file_path, logger=logger, verbose=verbose)
         self.dev_mode = False
-        self._json_file_path = None
-        self.json_file_path = json_file_path
         self._json_data = None
         self._animation = None
-        self.regenerated = False
 
     @property
     def valid(self):
@@ -38,7 +34,7 @@ class TruImage(TruMedia):
 
     @valid.setter
     def valid(self, _):
-        self.valid = self.ext.lower() in MEDIA_TYPES.get('image')
+        self._valid = self.ext.lower() in MEDIA_TYPES.get('image')
         if self.valid:
             self._reconcile_mime_type()
         if self.valid:
@@ -65,33 +61,6 @@ class TruImage(TruMedia):
             "json": self.json_file_path,
             "animation": self.animation
         }
-
-    @property
-    def json_file_path(self):
-        if self._json_file_path is None:
-            if "(" in self.media_path and ")" in self.media_path:
-                start = self.media_path.find("(")
-                end = self.media_path.find(")")
-                base_file = self.media_path[:start]
-                file_num = self.media_path[start + 1:end]
-                _file = f"{base_file}{self.ext}({file_num})"
-            json_file = f"{self.media_path}.json"
-            self._json_file_path = json_file if os.path.isfile(json_file) else None
-        return self._json_file_path
-
-    @json_file_path.setter
-    def json_file_path(self, value):
-        if value and not os.path.isfile(value):
-            self.logger.error(f"JSON file not found: {value}")
-            raise FileNotFoundError(f"JSON file not found: {value}")
-        self._json_file_path = value
-
-    @property
-    def json_data(self):
-        if self._json_data is None and self.json_file_path:
-            with open(self.json_file_path, "r", encoding="utf-8") as file_handle:
-                self._json_data = json.load(file_handle)
-        return self._json_data
 
     @property
     def animation(self):

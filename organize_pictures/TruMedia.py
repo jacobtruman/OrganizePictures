@@ -1,5 +1,7 @@
+import logging
 from abc import abstractmethod
 from datetime import datetime
+import json
 import os
 import pathlib
 import xml.etree.ElementTree as ET
@@ -16,16 +18,25 @@ register_heif_opener()
 # pylint: disable=too-many-instance-attributes
 class TruMedia:
 
-    def __init__(self, media_path, logger=None, verbose=False):
-        self.verbose = verbose
-        self.dev_mode = False
-        self._logger = None
-        self.logger = logger
-        self._media_path = None
-        self.media_path = media_path
-        self._ext = None
-        self._json_data = None
-        self._exif_data = None
+    def __init__(
+            self,
+            media_path: str,
+            json_file_path: str | None = None,
+            logger: logging.Logger | None = None,
+            verbose: bool = False
+    ):
+        self.verbose: bool = verbose
+        self.dev_mode: bool = False
+        self.regenerated = False
+        self._logger: logging.Logger | None = None
+        self.logger: logging.Logger | None = logger
+        self._media_path: str | None = None
+        self.media_path: str = media_path
+        self._json_file_path: str | None = None
+        self.json_file_path: str | None = json_file_path
+        self._ext: str | None = None
+        self._json_data: dict | None = None
+        self._exif_data: dict | None = None
         self._date_taken = None
         self._hash = None
         self._media_type = None
@@ -52,13 +63,40 @@ class TruMedia:
         self._media_path = value
 
     @property
-    def logger(self):
+    def json_file_path(self):
+        if self._json_file_path is None:
+            if "(" in self.media_path and ")" in self.media_path:
+                start = self.media_path.find("(")
+                end = self.media_path.find(")")
+                base_file = self.media_path[:start]
+                file_num = self.media_path[start + 1:end]
+                _file = f"{base_file}{self.ext}({file_num})"
+            json_file = f"{self.media_path}.json"
+            self._json_file_path = json_file if os.path.isfile(json_file) else None
+        return self._json_file_path
+
+    @json_file_path.setter
+    def json_file_path(self, value):
+        if value and not os.path.isfile(value):
+            self.logger.error(f"JSON file not found: {value}")
+            raise FileNotFoundError(f"JSON file not found: {value}")
+        self._json_file_path = value
+
+    @property
+    def json_data(self):
+        if self._json_data is None and self.json_file_path:
+            with open(self.json_file_path, "r", encoding="utf-8") as file_handle:
+                self._json_data = json.load(file_handle)
+        return self._json_data
+
+    @property
+    def logger(self) -> logging.Logger:
         if self._logger is None:
             self._logger = get_logger()
         return self._logger
 
     @logger.setter
-    def logger(self, value):
+    def logger(self, value: logging.Logger | None):
         if value is None:
             self._logger = get_logger()
         self._logger = value

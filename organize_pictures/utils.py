@@ -32,7 +32,7 @@ FILE_EXTS = {
 }
 
 
-def get_logger(verbose: bool = False):
+def get_logger(verbose: bool = False) -> logging.Logger:
     logger = logging.getLogger(__name__)
     # clear any existing handlers
     if logger.hasHandlers():
