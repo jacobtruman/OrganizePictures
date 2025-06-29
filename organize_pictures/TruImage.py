@@ -1,19 +1,15 @@
-from datetime import datetime
+import logging
 import hashlib
-import mimetypes
 import os
 import pathlib
 import shutil
 import tempfile
 
-from dict2xml import dict2xml
 from exiftool.exceptions import ExifToolExecuteError
-import magic
 from PIL import Image
 from pillow_heif import register_heif_opener
-import xmltodict
 
-from organize_pictures.utils import MEDIA_TYPES, EXIF_DATE_FIELDS, DATE_FORMATS, FILE_EXTS
+from organize_pictures.utils import MEDIA_TYPES, EXIF_DATE_FIELDS, FILE_EXTS
 from organize_pictures.TruMedia import TruMedia
 
 register_heif_opener()
@@ -22,17 +18,19 @@ register_heif_opener()
 # pylint: disable=too-many-instance-attributes
 class TruImage(TruMedia):
 
-    def __init__(self, media_path, json_file_path=None, logger=None, verbose=False):
+    def __init__(
+            self,
+            media_path: str,
+            json_file_path: str = None,
+            logger: logging.Logger = None,
+            verbose: bool = False
+    ):
         super().__init__(media_path=media_path, json_file_path=json_file_path, logger=logger, verbose=verbose)
         self.dev_mode = False
-        self._json_data = None
         self._animation = None
+        self.valid = None
 
-    @property
-    def valid(self):
-        return self._valid
-
-    @valid.setter
+    @TruMedia.valid.setter
     def valid(self, _):
         self._valid = self.ext.lower() in MEDIA_TYPES.get('image')
         if self.valid:
@@ -94,7 +92,9 @@ class TruImage(TruMedia):
             return False
 
     def _reconcile_mime_type(self):
-        mime_guess = mimetypes.guess_type(self.media_path)[0]
+        """Override parent method to handle image-specific regeneration logic"""
+        import magic
+
         mime_actual = magic.from_file(self.media_path, mime=True)
 
         if not mime_actual.startswith("image/"):
@@ -103,28 +103,9 @@ class TruImage(TruMedia):
 
         if not mime_actual.startswith("image/"):
             self.valid = False
-        elif mime_guess != mime_actual:
-            file_updates = {}
-            _mt = mimetypes.MimeTypes()
-            new_ext = _mt.types_map_inv[1].get(mime_actual)[0]
-            new_path = self.media_path.replace(self.ext, new_ext)
-            self.ext = new_ext
-            file_updates["media_path"] = new_path
-            self.logger.error(f"Mimetype does not match filetype: {mime_guess} != {mime_actual}")
-
-            if self.json_file_path and os.path.isfile(self.json_file_path):
-                new_json_file = f"{new_path}.json"
-                file_updates["json_file_path"] = new_json_file
-
-            for key, value in file_updates.items():
-                source = getattr(self, key)
-                if self.dev_mode:
-                    self.logger.info(f"Would update {key} '{source}' to '{value}'")
-                    shutil.copy(source, value)
-                else:
-                    self.logger.info(f"Updating {key} '{source}' to '{value}'")
-                    shutil.move(source, value)
-                    setattr(self, key, value)
+        else:
+            # Use parent class for common mime type reconciliation
+            super()._reconcile_mime_type()
 
     def _find_image_animation(self):
         image_animation = None
@@ -164,71 +145,7 @@ class TruImage(TruMedia):
                 self.logger.error(f"Error opening image: {self.media_path}")
                 self._hash = None
 
-    # pylint: disable=too-many-branches
-    def _write_json_data_to_media(self, media_path=None):
-        if media_path is None:
-            media_path = self.media_path
-        if self.json_data:
-            tags = {}
-            if "photoTakenTime" in self.json_data:
-                _date = datetime.fromtimestamp(
-                    int(self.json_data.get("photoTakenTime").get("timestamp"))
-                ).strftime(DATE_FORMATS.get("default"))
-                for field in EXIF_DATE_FIELDS:
-                    tags[field] = _date
-            if "people" in self.json_data:
-                user_comment = None
-                people_dict = {
-                    "People": {"Person": [person.get("name") for person in self.json_data.get("people")]}
-                }
-                if "EXIF:UserComment" in self.exif_data:
-                    user_comment = self.exif_data.get("EXIF:UserComment")
-                if user_comment:
-                    try:
-                        data_dict = xmltodict.parse(user_comment)
-                    except Exception:
-                        # if we can't parse the user comment, add existing comment as a note
-                        if "METADATA-START" in user_comment:
-                            data_dict = {"UserComment": {}}
-                        else:
-                            data_dict = {"UserComment": {"note": user_comment}}
 
-                    # make sure UserComment is at the root level
-                    if "UserComment" not in data_dict:
-                        data_dict = {"UserComment": data_dict}
-                    # if people_comment is not in user_comment, add people_dict
-                    if dict2xml(people_dict, newlines=False) not in user_comment:
-                        data_dict["UserComment"].update(people_dict)
-                else:
-                    data_dict = {"UserComment": people_dict}
-
-                # convert user comment to xml and add to tags
-                if "UserComment" in data_dict:
-                    tags["UserComment"] = dict2xml(data_dict.get("UserComment"), newlines=False)
-            if "geoDataExif" in self.json_data:
-                lat = self.json_data.get("geoDataExif").get("latitude")
-                lon = self.json_data.get("geoDataExif").get("longitude")
-                alt = self.json_data.get("geoDataExif").get("altitude")
-                if lat != 0 and lon != 0:
-                    # GPSLatitudeRef (S for negative, N for positive)
-                    if lat > 0:
-                        tags["GPSLatitude"] = lat
-                        tags["GPSLatitudeRef"] = "N"
-                    else:
-                        tags["GPSLatitude"] = -lat
-                        tags["GPSLatitudeRef"] = "S"
-                    # GPSLongitudeRef (W for negative, E for positive)
-                    if lon > 0:
-                        tags["GPSLongitude"] = lon
-                        tags["GPSLongitudeRef"] = "E"
-                    else:
-                        tags["GPSLongitude"] = -lon
-                        tags["GPSLongitudeRef"] = "W"
-                    tags["GPSAltitude"] = alt
-                    # GPSAltitudeRef (0 for above sea level, 1 for below sea level)
-                    tags["GPSAltitudeRef"] = 0 if alt > 0 else 1
-            if tags:
-                self._update_tags(media_path, tags)
 
     def _update_tags(self, media_path: str, tags: dict):
         try:
@@ -240,6 +157,21 @@ class TruImage(TruMedia):
                     self._update_tags(media_path, tags)
             else:
                 self.valid = False
+
+    def open(self):
+        try:
+            image = Image.open(self.media_path)
+            return image
+        except Exception as exc:
+            self.logger.error(f"Failed to open image: {self.media_path}\n{exc}")
+
+    def show(self):
+        try:
+            image = self.open()
+            image.show()
+            image.close()
+        except Exception as exc:
+            self.logger.error(f"Failed to show image: {self.media_path}\n{exc}")
 
     def convert(self, dest_ext: str):
         dest_file = self.media_path.replace(self.ext, dest_ext)
@@ -289,12 +221,9 @@ class TruImage(TruMedia):
         dest_file = f"{dest_dir}/{filename}{ext_lower}"
         if not os.path.isfile(dest_file):
             files_to_copy[self.media_path] = dest_file
-            if self.json_file_path:
-                dest_file = f"{dest_dir}/{filename}{ext_lower}.json"
-                if not os.path.isfile(dest_file):
-                    files_to_copy[self.json_file_path] = dest_file
-                else:
-                    self.logger.warning(f"Destination json file already exists: {dest_file}")
+
+            # Use parent class helper to handle JSON file (with extension suffix for images)
+            self._add_json_file_to_copy(files_to_copy, dest_dir, filename, ext_lower)
 
             if self.animation:
                 dest_file = f"{dest_dir}/{filename}{FILE_EXTS.get('video_preferred')}"

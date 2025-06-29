@@ -4,8 +4,6 @@ import shutil
 import tempfile
 
 import ffmpeg
-import magic
-import mimetypes
 
 from organize_pictures.utils import (
     MEDIA_TYPES, FILE_EXTS, VIDEO_DATE_FIELDS
@@ -15,8 +13,9 @@ from organize_pictures.TruMedia import TruMedia
 
 class TruVideo(TruMedia):
 
-    def __init__(self, media_path, logger=None, verbose=False):
-        super().__init__(media_path=media_path, logger=logger, verbose=verbose)
+    def __init__(self, media_path, json_file_path=None, logger=None, verbose=False):
+        super().__init__(media_path=media_path, json_file_path=json_file_path, logger=logger, verbose=verbose)
+        self.valid = None
 
     @property
     def media_type(self):
@@ -36,13 +35,10 @@ class TruVideo(TruMedia):
         """
         return {
             "video": self.media_path,
+            "json": self.json_file_path,
         }
 
-    @property
-    def valid(self):
-        return self._valid
-
-    @valid.setter
+    @TruMedia.valid.setter
     def valid(self, _):
         if self.ext.lower() not in MEDIA_TYPES.get('video'):
             self.logger.error(f"Invalid media file: {self.media_path}")
@@ -52,6 +48,8 @@ class TruVideo(TruMedia):
             self._valid = False
         else:
             self._reconcile_mime_type()
+        if self.valid:
+            self._write_json_data_to_media()
 
     def _is_animation(self):
         # if an image of the same base name exists, this video file is an animation
@@ -60,29 +58,7 @@ class TruVideo(TruMedia):
                     os.path.isfile(self.media_path.replace(self.ext, ext.upper()))):
                 return True
 
-    def _reconcile_mime_type(self):
-        mime_guess = mimetypes.guess_type(self.media_path)[0]
-        mime_actual = magic.from_file(self.media_path, mime=True)
-        if mime_actual == "inode/x-empty":
-            self.valid = False
-        elif mime_guess != mime_actual:
-            file_updates = {}
-            _mt = mimetypes.MimeTypes()
-            new_ext = _mt.types_map_inv[1].get(mime_actual)[0]
-            new_path = self.media_path.replace(self.ext, new_ext)
-            self.ext = new_ext
-            file_updates["media_path"] = new_path
-            self.logger.error(f"Mimetype does not match filetype: {mime_guess} != {mime_actual}")
 
-            for key, value in file_updates.items():
-                source = getattr(self, key)
-                if self.dev_mode:
-                    self.logger.info(f"Would update {key} '{source}' to '{value}'")
-                    shutil.copy(source, value)
-                else:
-                    self.logger.info(f"Updating {key} '{source}' to '{value}'")
-                    shutil.move(source, value)
-                    setattr(self, key, value)
 
     def _get_media_hash(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -107,7 +83,7 @@ class TruVideo(TruMedia):
                     s = f.read()
                     self._hash = hashlib.md5(s).hexdigest()
             except Exception:  # pylint: disable=broad-except
-                self.logger.error(f"Error opening image: {self.media_path}")
+                self.logger.error(f"Error opening video: {self.media_path}")
                 self._hash = None
 
     def convert(self, dest_ext: str):
@@ -115,12 +91,13 @@ class TruVideo(TruMedia):
         if self._convert_video(self.media_path, dest_file):
             self.media_path = dest_file
             self.ext = dest_ext
+            self._write_json_data_to_media()
             return True
         return False
 
     def copy(self, dest_info: dict):
         """
-        Copy image to destination path
+        Copy video to destination path
         :param dest_info: dict of destination path information
             path: destination path
             filename: destination filename without extension
@@ -140,6 +117,9 @@ class TruVideo(TruMedia):
         dest_file = f"{dest_dir}/{filename}{self.ext}"
         if not os.path.isfile(dest_file):
             files_to_copy[self.media_path] = dest_file
+
+            # Use parent class helper to handle JSON file
+            self._add_json_file_to_copy(files_to_copy, dest_dir, filename)
 
             for source, dest in files_to_copy.items():
                 self.logger.info(f"Copying file:\n\tSource: {source}\n\tDestination: {dest}")

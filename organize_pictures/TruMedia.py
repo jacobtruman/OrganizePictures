@@ -1,14 +1,18 @@
 import logging
 from abc import abstractmethod
 from datetime import datetime
+from glob import glob
 import json
 import os
 import pathlib
+import re
 import xml.etree.ElementTree as ET
 
 import ffmpeg
 from exiftool import ExifToolHelper
 from pillow_heif import register_heif_opener
+from dict2xml import dict2xml
+import xmltodict
 
 from organize_pictures.utils import get_logger, EXIF_DATE_FIELDS, DATE_FORMATS, VIDEO_DATE_FIELDS, MEDIA_TYPES
 
@@ -28,6 +32,7 @@ class TruMedia:
         self.verbose: bool = verbose
         self.dev_mode: bool = False
         self.regenerated = False
+        self.overwrite_comment = False
         self._logger: logging.Logger | None = None
         self.logger: logging.Logger | None = logger
         self._media_path: str | None = None
@@ -41,7 +46,6 @@ class TruMedia:
         self._hash = None
         self._media_type = None
         self._valid: bool = True
-        self.valid = None
 
     @abstractmethod
     def media_type(self):
@@ -50,6 +54,14 @@ class TruMedia:
     @abstractmethod
     def date_fields(self) -> list:
         self.logger.info(f"This method should be overridden in a subclass")
+
+    @property
+    def valid(self):
+        """
+        Common getter for valid property - returns the internal _valid state
+        Subclasses should implement their own setters with media-specific validation logic
+        """
+        return self._valid
 
     @property
     def media_path(self):
@@ -71,8 +83,16 @@ class TruMedia:
                 base_file = self.media_path[:start]
                 file_num = self.media_path[start + 1:end]
                 _file = f"{base_file}{self.ext}({file_num})"
-            json_file = f"{self.media_path}.json"
-            self._json_file_path = json_file if os.path.isfile(json_file) else None
+            else:
+                _file = self.media_path
+
+            pattern = re.compile(rf"^{re.escape(_file)}\..*?\.json$")
+            dir_path = os.path.dirname(self.media_path) or "."
+            for json_file in glob(f"{_file}*.json"):
+                json_file_path = os.path.join(dir_path, json_file)
+                if pattern.match(json_file_path):
+                    self._json_file_path = json_file_path
+                    break
         return self._json_file_path
 
     @json_file_path.setter
@@ -171,6 +191,134 @@ class TruMedia:
     def _get_media_hash(self):
         self.logger.info(f"This method should be overridden in a subclass")
 
+    def _reconcile_mime_type(self):
+        """
+        Reconcile mime type with file extension (common implementation)
+        """
+        import mimetypes
+        import magic
+        import shutil
+
+        mime_guess = mimetypes.guess_type(self.media_path)[0]
+        mime_actual = magic.from_file(self.media_path, mime=True)
+
+        if mime_actual == "inode/x-empty":
+            self._valid = False
+        elif mime_guess != mime_actual:
+            file_updates = {}
+            _mt = mimetypes.MimeTypes()
+            new_ext = _mt.types_map_inv[1].get(mime_actual)[0]
+            new_path = self.media_path.replace(self.ext, new_ext)
+            self.ext = new_ext
+            file_updates["media_path"] = new_path
+            self.logger.error(f"Mimetype does not match filetype: {mime_guess} != {mime_actual}")
+
+            if self.json_file_path and os.path.isfile(self.json_file_path):
+                new_json_file = f"{new_path}.json"
+                file_updates["json_file_path"] = new_json_file
+
+            for key, value in file_updates.items():
+                source = getattr(self, key)
+                if self.dev_mode:
+                    self.logger.info(f"Would update {key} '{source}' to '{value}'")
+                    shutil.copy(source, value)
+                else:
+                    self.logger.info(f"Updating {key} '{source}' to '{value}'")
+                    shutil.move(source, value)
+                    setattr(self, key, value)
+
+    def _write_json_data_to_media(self, media_path=None):
+        """
+        Write JSON data to media metadata (common implementation for images and videos)
+        """
+        if media_path is None:
+            media_path = self.media_path
+        if self.json_data:
+            tags = {}
+
+            # Handle photoTakenTime
+            if "photoTakenTime" in self.json_data:
+                _date = datetime.fromtimestamp(
+                    int(self.json_data.get("photoTakenTime").get("timestamp"))
+                ).strftime(DATE_FORMATS.get("default"))
+                for field in self.date_fields:
+                    # Use the field name as-is for videos (they already have prefixes)
+                    # For images, use the field name without prefix (TruImage._date_field will add EXIF:)
+                    if self.media_type == "video":
+                        # Videos: use the full field name (e.g., "QuickTime:CreateDate")
+                        tags[field] = _date
+                    else:
+                        # Images: use just the field name (e.g., "DateTimeOriginal")
+                        # TruImage._date_field will add "EXIF:" prefix when needed
+                        field_name = field.split(':')[-1] if ':' in field else field
+                        tags[field_name] = _date
+
+            # Handle people data
+            if "people" in self.json_data:
+                people_dict = {
+                    "People": {"Person": [person.get("name") for person in self.json_data.get("people")]}
+                }
+
+                # For images, handle existing UserComment data more carefully
+                if hasattr(self, 'exif_data') and hasattr(self, 'overwrite_comment'):
+                    user_comment = None
+                    if "EXIF:UserComment" in self.exif_data:
+                        user_comment = self.exif_data.get("EXIF:UserComment")
+                    if not self.overwrite_comment and user_comment:
+                        try:
+                            data_dict = xmltodict.parse(user_comment)
+                        except Exception:
+                            # if we can't parse the user comment, add existing comment as a note
+                            if "METADATA-START" in user_comment:
+                                data_dict = {"UserComment": {}}
+                            else:
+                                data_dict = {"UserComment": {"note": user_comment}}
+
+                        # make sure UserComment is at the root level
+                        if "UserComment" not in data_dict:
+                            data_dict = {"UserComment": data_dict}
+                        # if people_comment is not in user_comment, add people_dict
+                        if dict2xml(people_dict, newlines=False) not in user_comment:
+                            data_dict["UserComment"].update(people_dict)
+                    else:
+                        data_dict = {"UserComment": people_dict}
+                else:
+                    # For videos or simpler handling
+                    data_dict = {"UserComment": people_dict}
+
+                # convert user comment to xml and add to tags
+                if "UserComment" in data_dict:
+                    tags["UserComment"] = dict2xml(data_dict.get("UserComment"), newlines=False)
+
+            # Handle GPS data
+            if "geoDataExif" in self.json_data:
+                lat = self.json_data.get("geoDataExif").get("latitude")
+                lon = self.json_data.get("geoDataExif").get("longitude")
+                alt = self.json_data.get("geoDataExif").get("altitude")
+                if lat != 0 and lon != 0:
+                    # GPSLatitudeRef (S for negative, N for positive)
+                    if lat > 0:
+                        tags["GPSLatitude"] = lat
+                        tags["GPSLatitudeRef"] = "N"
+                    else:
+                        tags["GPSLatitude"] = -lat
+                        tags["GPSLatitudeRef"] = "S"
+                    # GPSLongitudeRef (W for negative, E for positive)
+                    if lon > 0:
+                        tags["GPSLongitude"] = lon
+                        tags["GPSLongitudeRef"] = "E"
+                    else:
+                        tags["GPSLongitude"] = -lon
+                        tags["GPSLongitudeRef"] = "W"
+                    if alt != 0:
+                        tags["GPSAltitude"] = alt
+                        # GPSAltitudeRef (0 for above sea level, 1 for below sea level)
+                        tags["GPSAltitudeRef"] = 0 if alt > 0 else 1
+
+            if tags:
+                self.logger.info(f"Writing JSON data to media metadata: {media_path}")
+                self._update_tags(media_path, tags)
+
     def _update_tags(self, media_path: str, tags: dict):
         del_tags = []
         for _field, _value in tags.items():
@@ -227,6 +375,21 @@ class TruMedia:
             return False
         self.logger.info(f"Successfully converted \"{_file}\" to \"{_new_file}\"")
         return True
+
+    def _add_json_file_to_copy(self, files_to_copy: dict, dest_dir: str, filename: str, ext_suffix=""):
+        """
+        Helper method to add JSON file to copy operations
+        :param files_to_copy: dict to add file mappings to
+        :param dest_dir: destination directory
+        :param filename: base filename without extension
+        :param ext_suffix: optional extension suffix (e.g., ".jpg" for images)
+        """
+        if self.json_file_path and os.path.isfile(self.json_file_path):
+            dest_json_file = f"{dest_dir}/{filename}{ext_suffix}.json"
+            if not os.path.isfile(dest_json_file):
+                files_to_copy[self.json_file_path] = dest_json_file
+            else:
+                self.logger.warning(f"Destination JSON file already exists: {dest_json_file}")
 
     def copy(self, dest_info: dict):
         """

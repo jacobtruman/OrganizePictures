@@ -171,7 +171,7 @@ class OrganizePictures:
         for index, media_file_path in enumerate(media_files, 1):
             file_base_name = pathlib.Path(media_file_path).stem
 
-            if "(" in file_base_name or ")" in file_base_name or len(os.path.basename(media_file_path)) >= 46:
+            if "(" in file_base_name or ")" in file_base_name or len(os.path.basename(media_file_path)) >= 146:
                 # manual intervention required
                 self.logger.error(
                     f"Manual intervention required for file (filename inconsistencies): {media_file_path}"
