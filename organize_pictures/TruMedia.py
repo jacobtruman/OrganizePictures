@@ -157,6 +157,9 @@ class TruMedia:
                         for date_format in DATE_FORMATS.values():
                             try:
                                 self._date_taken = datetime.strptime(self.exif_data.get(_date_field), date_format)
+                                self.logger.info(
+                                    f"Successfully converted date field using format {date_format}: {_date_field}"
+                                )
                                 break
                             except Exception as exc:
                                 self.logger.error(
