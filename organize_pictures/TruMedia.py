@@ -1,5 +1,5 @@
 import logging
-from abc import abstractmethod
+from abc import abstractmethod, ABC
 from datetime import datetime
 from glob import glob
 import json
@@ -20,7 +20,7 @@ register_heif_opener()
 
 
 # pylint: disable=too-many-instance-attributes
-class TruMedia:
+class TruMedia(ABC):
 
     def __init__(
             self,
@@ -37,6 +37,7 @@ class TruMedia:
         self.logger: logging.Logger | None = logger
         self._media_path: str | None = None
         self.media_path: str = media_path
+        self.media_path_source: str | None = None
         self._json_file_path: str | None = None
         self.json_file_path: str | None = json_file_path
         self._ext: str | None = None
@@ -46,6 +47,8 @@ class TruMedia:
         self._hash = None
         self._media_type = None
         self._valid: bool = True
+        if self.ext.lower() != self.preferred_ext:
+            self.convert()
 
     @abstractmethod
     def media_type(self):
@@ -53,6 +56,14 @@ class TruMedia:
 
     @abstractmethod
     def date_fields(self) -> list:
+        self.logger.info(f"This method should be overridden in a subclass")
+
+    @abstractmethod
+    def preferred_ext(self):
+        self.logger.info(f"This method should be overridden in a subclass")
+
+    @abstractmethod
+    def convert(self, dest_ext: str | None = None):
         self.logger.info(f"This method should be overridden in a subclass")
 
     @property
@@ -157,9 +168,6 @@ class TruMedia:
                         for date_format in DATE_FORMATS.values():
                             try:
                                 self._date_taken = datetime.strptime(self.exif_data.get(_date_field), date_format)
-                                self.logger.info(
-                                    f"Successfully converted date field using format {date_format}: {_date_field}"
-                                )
                                 break
                             except Exception as exc:
                                 self.logger.error(

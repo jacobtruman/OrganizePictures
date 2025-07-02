@@ -101,7 +101,7 @@ class OrganizePictures:
         :param file_info: Dict of file info containing dir and filename
         :return:
         """
-        return f"{file_info.get('dir')}/{file_info.get('filename')}{FILE_EXTS.get('image_preferred')}"
+        return f"{file_info.get('dir')}/{file_info.get('filename')}{file_info.get('ext')}"
 
     def _check_db_for_media_path(self, media_path):
         sql = f'SELECT * FROM image_hashes WHERE image_path = "{media_path}"'
@@ -201,6 +201,7 @@ class OrganizePictures:
         _new_file_info = {
             'dir': _dir,
             'filename': _filename,
+            'ext': media.preferred_ext,
         }
         new_file_path = self._file_path(_new_file_info)
 

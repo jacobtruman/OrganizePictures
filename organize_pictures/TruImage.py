@@ -28,7 +28,6 @@ class TruImage(TruMedia):
         super().__init__(media_path=media_path, json_file_path=json_file_path, logger=logger, verbose=verbose)
         self.dev_mode = False
         self._animation = None
-        self.valid = None
 
     @TruMedia.valid.setter
     def valid(self, _):
@@ -56,6 +55,7 @@ class TruImage(TruMedia):
         """
         return {
             "image": self.media_path,
+            "image_source": self.media_path_source,
             "json": self.json_file_path,
             "animation": self.animation
         }
@@ -65,6 +65,10 @@ class TruImage(TruMedia):
         if self._animation is None:
             self._animation = self._find_image_animation()
         return self._animation
+
+    @property
+    def preferred_ext(self):
+        return FILE_EXTS.get('image_preferred')
 
     def _date_field(self, date_field: str):
         return f"EXIF:{date_field}"
@@ -173,7 +177,9 @@ class TruImage(TruMedia):
         except Exception as exc:
             self.logger.error(f"Failed to show image: {self.media_path}\n{exc}")
 
-    def convert(self, dest_ext: str):
+    def convert(self, dest_ext: str | None = None):
+        if dest_ext is None:
+            dest_ext = self.preferred_ext
         dest_file = self.media_path.replace(self.ext, dest_ext)
         if os.path.isfile(dest_file):
             self.logger.error(f"Not converting {self.media_path} to {dest_ext} as it already exists")
@@ -185,6 +191,14 @@ class TruImage(TruMedia):
             image.convert('RGB').save(dest_file)
             image.close()
             # update image path
+            self.media_path_source = self.media_path
+            if self.json_file_path:
+                new_json_file = f"{dest_file}.json"
+                if not os.path.isfile(new_json_file):
+                    shutil.move(self.json_file_path, new_json_file)
+                    self.json_file_path = new_json_file
+                else:
+                    self.logger.warning(f"Destination JSON file already exists: {new_json_file}")
             self.media_path = dest_file
             self.ext = dest_ext
             self._write_json_data_to_media()
@@ -213,10 +227,10 @@ class TruImage(TruMedia):
         if ext_lower in FILE_EXTS.get('image_convert'):
             # add the pre-converted file to be copied
             files_to_copy[self.media_path] = f"{dest_dir}/{filename}{ext_lower}"
-            self.convert(FILE_EXTS.get('image_preferred'))
+            self.convert()
             ext_lower = self.ext.lower()
         elif ext_lower in FILE_EXTS.get('image_change'):
-            ext_lower = FILE_EXTS.get('image_preferred')
+            ext_lower = self.preferred_ext
 
         dest_file = f"{dest_dir}/{filename}{ext_lower}"
         if not os.path.isfile(dest_file):
@@ -240,3 +254,62 @@ class TruImage(TruMedia):
             self.logger.warning(f"Destination file already exists: {dest_file}")
 
         return files_to_copy
+
+    def __repr__(self):
+        """
+        Return a detailed string representation for debugging
+        """
+        return (f"TruImage(media_path='{self.media_path}', "
+                f"json_file_path={repr(self.json_file_path)}, "
+                f"valid={self.valid}, "
+                f"ext='{self.ext}', "
+                f"date_taken={repr(self.date_taken)}, "
+                f"animation={repr(self.animation)}, "
+                f"regenerated={self.regenerated}, "
+                f"hash='{self.hash if self.hash else 'None'}')")
+
+    def __str__(self):
+        """
+        Return a user-friendly string representation
+        """
+        import os
+
+        filename = os.path.basename(self.media_path)
+        status = "✅ Valid" if self.valid else "❌ Invalid"
+
+        # Get file size
+        try:
+            file_size = os.path.getsize(self.media_path)
+            if file_size > 1024 * 1024:  # MB
+                size_str = f"{file_size / (1024 * 1024):.1f}MB"
+            elif file_size > 1024:  # KB
+                size_str = f"{file_size / 1024:.1f}KB"
+            else:
+                size_str = f"{file_size}B"
+        except Exception:
+            size_str = "Unknown"
+
+        # Get image dimensions if available
+        dimensions_str = ""
+        try:
+            with Image.open(self.media_path) as img:
+                width, height = img.size
+                dimensions_str = f" | 📐 {width}x{height}"
+        except:
+            pass
+
+        # Date information
+        date_str = ""
+        if self.date_taken:
+            date_str = f" | 📅 {self.date_taken.strftime('%Y-%m-%d')}"
+
+        # JSON indicator
+        json_str = " | 📋 JSON" if self.json_data else ""
+
+        # Animation indicator
+        animation_str = " | 🎬 Animation" if self.animation else ""
+
+        # Regenerated indicator
+        regenerated_str = " | 🔄 Regenerated" if self.regenerated else ""
+
+        return f"🖼️ {filename} ({size_str}) {status}{dimensions_str}{date_str}{json_str}{animation_str}{regenerated_str}"
