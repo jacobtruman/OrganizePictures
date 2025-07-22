@@ -97,7 +97,7 @@ class TruMedia(ABC):
             else:
                 _file = self.media_path
 
-            pattern = re.compile(rf"^{re.escape(_file)}\..*?\.json$")
+            pattern = re.compile(rf"^{re.escape(_file)}\.*?\.json$")
             dir_path = os.path.dirname(self.media_path) or "."
             for json_file in glob(f"{_file}*.json"):
                 json_file_path = os.path.join(dir_path, json_file)
