@@ -228,12 +228,14 @@ class TruImage(TruMedia):
         ext_lower = self.ext.lower()
 
         if ext_lower in FILE_EXTS.get('image_convert'):
-            # add the pre-converted file to be copied
-            files_to_copy[self.media_path] = f"{dest_dir}/{filename}{ext_lower}"
             self.convert()
             ext_lower = self.ext.lower()
         elif ext_lower in FILE_EXTS.get('image_change'):
             ext_lower = self.preferred_ext
+
+        if self.media_path_source:
+            files_to_copy[
+                self.media_path_source] = f"{dest_dir}/{filename}{pathlib.Path(self.media_path_source).suffix}"
 
         dest_file = f"{dest_dir}/{filename}{ext_lower}"
         if not os.path.isfile(dest_file):
