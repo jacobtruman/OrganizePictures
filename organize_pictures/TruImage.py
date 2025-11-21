@@ -28,6 +28,8 @@ class TruImage(TruMedia):
         super().__init__(media_path=media_path, json_file_path=json_file_path, logger=logger, verbose=verbose)
         self.dev_mode = False
         self._animation = None
+        # set the valid property to trigger validation
+        self.valid = None
 
     @TruMedia.valid.setter
     def valid(self, _):
@@ -187,23 +189,29 @@ class TruImage(TruMedia):
         self.logger.debug(f"Converting file:\n\tSource: {self.media_path}\n\tDestination: {dest_file}")
         method = "pillow"
         try:
-            image = Image.open(self.media_path)
-            image.convert('RGB').save(dest_file)
-            image.close()
-            # update image path
-            self.media_path_source = self.media_path
-            if self.json_file_path:
-                new_json_file = f"{dest_file}.json"
-                if not os.path.isfile(new_json_file):
-                    shutil.move(self.json_file_path, new_json_file)
-                    self.json_file_path = new_json_file
-                else:
-                    self.logger.warning(f"Destination JSON file already exists: {new_json_file}")
-            self.media_path = dest_file
-            self.ext = dest_ext
-            self._write_json_data_to_media()
+            print("0")
+            with Image.open(self.media_path) as image:
+                print("1")
+                image.convert('RGB').save(dest_file)
+                print("2")
+                image.close()
+                print("3")
+                # update image path
+                self.media_path_source = self.media_path
+                print("4")
+                if self.json_file_path:
+                    new_json_file = f"{dest_file}.json"
+                    if not os.path.isfile(new_json_file):
+                        shutil.move(self.json_file_path, new_json_file)
+                        self.json_file_path = new_json_file
+                    else:
+                        self.logger.warning(f"Destination JSON file already exists: {new_json_file}")
+                self.media_path = dest_file
+                self.ext = dest_ext
+                self._write_json_data_to_media()
         except Exception as exc:
-            self.logger.error(f"Failed second conversion attempt via {method}: {self.media_path}\n{exc}")
+            self.logger.error(f"Failed conversion attempt via {method}: {self.media_path}\n{exc}")
+            exit()
             return False
         self.logger.debug(
             f"Successfully converted file via {method}:\n\tSource: {self.media_path}\n\tDestination: {dest_file}"
