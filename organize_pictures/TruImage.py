@@ -189,16 +189,11 @@ class TruImage(TruMedia):
         self.logger.debug(f"Converting file:\n\tSource: {self.media_path}\n\tDestination: {dest_file}")
         method = "pillow"
         try:
-            print("0")
             with Image.open(self.media_path) as image:
-                print("1")
                 image.convert('RGB').save(dest_file)
-                print("2")
                 image.close()
-                print("3")
                 # update image path
                 self.media_path_source = self.media_path
-                print("4")
                 if self.json_file_path:
                     new_json_file = f"{dest_file}.json"
                     if not os.path.isfile(new_json_file):
