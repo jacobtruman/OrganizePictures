@@ -109,6 +109,10 @@ ipython_config.py
 #   https://pdm.fming.dev/#use-with-ide
 .pdm.toml
 
+# uv
+#   uv.lock should be committed to version control for reproducible builds
+#   .venv is already ignored above in the Environments section
+
 # PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
 __pypackages__/
 
@@ -161,7 +165,7 @@ cython_debug/
 
 # other
 .DS_Store
-tests/
 renamed/
+tests/resources/
 *.db
 *.db-journal

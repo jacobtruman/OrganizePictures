@@ -86,9 +86,13 @@ class OrganizePictures:
         atexit.register(self._complete)
 
     def _complete(self):
-        self.logger.debug("EXIT: Committing final records")
-        self.db_conn.commit()
-        self.db_conn.close()
+        try:
+            self.logger.debug("EXIT: Committing final records")
+            self.db_conn.commit()
+            self.db_conn.close()
+        except (sqlite3.OperationalError, sqlite3.ProgrammingError):
+            # Database connection already closed or database file deleted
+            pass
 
     @staticmethod
     def init_offset():
