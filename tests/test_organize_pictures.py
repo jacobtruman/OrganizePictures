@@ -4,7 +4,7 @@ import pytest
 import sqlite3
 import tempfile
 from datetime import datetime, timedelta
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch, MagicMock, PropertyMock
 from PIL import Image
 from organize_pictures import OrganizePictures
 from organize_pictures.TruImage import TruImage
@@ -337,8 +337,37 @@ class TestOrganizePicturesRun:
             source_directory=temp_dirs["source"],
             destination_directory=temp_dirs["dest"]
         )
-        
+
         results = org.run()
         assert isinstance(results, dict)
         assert all(key in results for key in ["moved", "duplicate", "failed", "manual", "invalid", "deleted"])
+
+    @patch('exiftool.ExifToolHelper')
+    def test_run_increments_failed_when_date_taken_is_none(self, mock_exif, temp_dirs):
+        """Test that files without date_taken are counted as failed"""
+        # Create test image
+        img_path = os.path.join(temp_dirs["source"], "test.jpg")
+        img = Image.new('RGB', (100, 100))
+        img.save(img_path)
+
+        # Mock EXIF data to return no date information
+        mock_eth = MagicMock()
+        mock_eth.get_metadata.return_value = [{}]  # No date fields
+        mock_exif.return_value.__enter__.return_value = mock_eth
+
+        org = OrganizePictures(
+            source_directory=temp_dirs["source"],
+            destination_directory=temp_dirs["dest"],
+            media_type="image"
+        )
+
+        with patch('organize_pictures.TruImage.TruImage._reconcile_mime_type'):
+            with patch('organize_pictures.TruImage.TruImage._write_json_data_to_media'):
+                with patch.object(TruImage, 'date_taken', new_callable=PropertyMock) as mock_date:
+                    mock_date.return_value = None  # Simulate no date found
+                    results = org.run()
+
+                    # Should increment failed counter
+                    assert results['failed'] == 1
+                    assert results['moved'] == 0
 

@@ -263,6 +263,9 @@ class OrganizePictures:
                     # file is already moved
                     self.logger.info(f"File already moved: {media_file} -> {new_file_info.get('path')}")
                     cleanup_files += media.files.values()
+            else:
+                self.logger.error(f"Unable to determine date taken for file: {media_file}")
+                self.results['failed'] += 1
 
         if cleanup_files and self.cleanup:
             for cleanup_file in list(set(cleanup_files)):

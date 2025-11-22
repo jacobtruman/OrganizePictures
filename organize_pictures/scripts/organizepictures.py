@@ -150,9 +150,34 @@ def main():
     result = organizer.run()
 
     if result:
-        organizer.logger.info("######### Results #########")
-        for item, count in result.items():
-            organizer.logger.info(f"{item}:\t{count}")
+        # Display results summary with nice formatting
+        organizer.logger.info("\n" + "=" * 50)
+        organizer.logger.info("📊 ORGANIZATION RESULTS SUMMARY")
+        organizer.logger.info("=" * 50)
+
+        # Define labels and emojis for each result type
+        result_labels = {
+            'moved': ('✅ Files Moved', 'success'),
+            'duplicate': ('🔄 Duplicates Skipped', 'info'),
+            'failed': ('❌ Failed (No Date/Copy Error)', 'error'),
+            'manual': ('⚠️  Manual Review Required', 'warning'),
+            'invalid': ('🚫 Invalid Files', 'error'),
+            'deleted': ('🗑️  Files Deleted', 'info'),
+        }
+
+        # Display each result with appropriate formatting
+        for key, count in result.items():
+            label, category = result_labels.get(key, (key.capitalize(), 'info'))
+            organizer.logger.info(f"{label:.<35} {count:>5}")
+
+        organizer.logger.info("=" * 50)
+
+        # Display summary message
+        total_processed = result.get('moved', 0) + result.get('duplicate', 0) + result.get('failed', 0)
+        if total_processed > 0:
+            success_rate = (result.get('moved', 0) / total_processed * 100) if total_processed > 0 else 0
+            organizer.logger.info(f"✨ Success Rate: {success_rate:.1f}%")
+            organizer.logger.info("=" * 50 + "\n")
 
 
 if __name__ == '__main__':
