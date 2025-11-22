@@ -160,38 +160,40 @@ class TruMedia(ABC):
     def date_taken(self):
         # pylint: disable=too-many-nested-blocks
         if self._date_taken is None:
-            try:
-                for exif_date_field in self.date_fields:
-                    _date_field = self._date_field(exif_date_field)
-                    if _date_field in self.exif_data:
-                        self.logger.info(f"Using date field: {_date_field}")
-                        for date_format in DATE_FORMATS.values():
-                            try:
-                                self._date_taken = datetime.strptime(self.exif_data.get(_date_field), date_format)
-                                break
-                            except Exception as exc:
-                                self.logger.error(
-                                    f"Unable to convert date field using format {date_format}: {_date_field}\n{exc}"
-                                )
-                if self._date_taken is None and "PNG:XMLcommagicmemoriesm4" in self.exif_data:
-                    try:
-                        tree = ET.fromstring(self.exif_data.get("PNG:XMLcommagicmemoriesm4"))
-                        if tree.attrib.get("creation") is not None:
-                            self.logger.info("Using m4 creation date")
-                            self._date_taken = datetime.strptime(tree.attrib.get("creation"), DATE_FORMATS.get("m4"))
-                    except Exception as exc:
-                        self.logger.error(f"Unable to get m4 creation date:\n{exc}")
-            except Exception as exc:
-                self.logger.error(f'Unable to get exif data for file: {self.media_path}:\n{exc}')
-
-            # If still no date found, try to get it from JSON file
-            if self._date_taken is None and self.json_data and "photoTakenTime" in self.json_data:
+            # First priority: Try to get date from JSON file
+            if self.json_data and "photoTakenTime" in self.json_data:
                 try:
                     timestamp = int(self.json_data.get("photoTakenTime").get("timestamp"))
                     self._date_taken = datetime.fromtimestamp(timestamp)
                     self.logger.info(f"Using date from JSON photoTakenTime: {self._date_taken}")
                 except Exception as exc:
                     self.logger.error(f"Unable to get date from JSON photoTakenTime:\n{exc}")
+
+            # Second priority: Try to get date from file metadata
+            if self._date_taken is None:
+                try:
+                    for exif_date_field in self.date_fields:
+                        _date_field = self._date_field(exif_date_field)
+                        if _date_field in self.exif_data:
+                            self.logger.info(f"Using date field: {_date_field}")
+                            for date_format in DATE_FORMATS.values():
+                                try:
+                                    self._date_taken = datetime.strptime(self.exif_data.get(_date_field), date_format)
+                                    break
+                                except Exception as exc:
+                                    self.logger.error(
+                                        f"Unable to convert date field using format {date_format}: {_date_field}\n{exc}"
+                                    )
+                    if self._date_taken is None and "PNG:XMLcommagicmemoriesm4" in self.exif_data:
+                        try:
+                            tree = ET.fromstring(self.exif_data.get("PNG:XMLcommagicmemoriesm4"))
+                            if tree.attrib.get("creation") is not None:
+                                self.logger.info("Using m4 creation date")
+                                self._date_taken = datetime.strptime(tree.attrib.get("creation"), DATE_FORMATS.get("m4"))
+                        except Exception as exc:
+                            self.logger.error(f"Unable to get m4 creation date:\n{exc}")
+                except Exception as exc:
+                    self.logger.error(f'Unable to get exif data for file: {self.media_path}:\n{exc}')
 
             if self._date_taken is None:
                 self.logger.error(f"Unable to determine date taken for {self.media_path}")

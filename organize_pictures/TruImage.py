@@ -87,6 +87,8 @@ class TruImage(TruMedia):
             # regenerate image
             Image.open(self.media_path).save(self.media_path)
             self.regenerated = True
+            # Reset cached EXIF data since the file was regenerated
+            self._exif_data = None
             # update exif data
             self.logger.debug("Image regenerated; trying to rewrite exif data")
             tags = {tag.replace("EXIF:", ""): value for tag, value in exif_data.items() if tag.startswith("EXIF:")}
@@ -207,6 +209,8 @@ class TruImage(TruMedia):
                         self.logger.warning(f"Destination JSON file already exists: {new_json_file}")
                 self.media_path = dest_file
                 self.ext = dest_ext
+                # Reset cached EXIF data so _update_tags reads from the new file
+                self._exif_data = None
 
                 # Restore EXIF data to converted file
                 self.logger.debug("Image converted; restoring EXIF data")

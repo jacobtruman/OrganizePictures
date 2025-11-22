@@ -40,13 +40,65 @@ A Python tool for organizing photos and videos into folders by date, with intell
 - FFmpeg (for video conversion)
 
 ### Install from PyPI
+
+#### Using pip
 ```bash
 pip install OrganizePictures
 ```
 
+#### Using uv tool (Recommended)
+[uv](https://github.com/astral-sh/uv) can install Python tools in isolated environments, making them available globally without affecting your system Python or other projects.
+
+```bash
+# Install uv if you haven't already
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install OrganizePictures as a tool
+uv tool install OrganizePictures
+
+# The commands are now available globally
+organizepictures --help
+truexif --help
+trugiftomp4 --help
+```
+
+**Benefits of using `uv tool install`:**
+- Isolated environment: No dependency conflicts with other projects
+- Global availability: Commands work from any directory
+- Easy updates: `uv tool upgrade OrganizePictures`
+- Easy removal: `uv tool uninstall OrganizePictures`
+
+**Managing the tool:**
+```bash
+# Upgrade to the latest version
+uv tool upgrade OrganizePictures
+
+# List installed tools
+uv tool list
+
+# Uninstall the tool
+uv tool uninstall OrganizePictures
+```
+
 ### Install from Source
 
-#### Using uv (Recommended)
+#### Using uv tool (Install as global tool from source)
+```bash
+# Install uv if you haven't already
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Clone the repository
+git clone https://github.com/jacobtruman/OrganizePictures.git
+cd OrganizePictures
+
+# Install as a tool from the local directory
+uv tool install .
+
+# The commands are now available globally
+organizepictures --help
+```
+
+#### Using uv sync (For development)
 [uv](https://github.com/astral-sh/uv) is a fast Python package installer and resolver.
 
 ```bash
@@ -57,6 +109,9 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 git clone https://github.com/jacobtruman/OrganizePictures.git
 cd OrganizePictures
 uv sync
+
+# Run commands using uv run
+uv run organizepictures --help
 ```
 
 This will create a virtual environment in `.venv` and install all dependencies with their exact versions from `uv.lock`.
