@@ -189,9 +189,13 @@ class TruImage(TruMedia):
         self.logger.debug(f"Converting file:\n\tSource: {self.media_path}\n\tDestination: {dest_file}")
         method = "pillow"
         try:
+            # Save EXIF data before conversion
+            exif_data = self.exif_data
+
             with Image.open(self.media_path) as image:
                 image.convert('RGB').save(dest_file)
                 image.close()
+
                 # update image path
                 self.media_path_source = self.media_path
                 if self.json_file_path:
@@ -203,6 +207,12 @@ class TruImage(TruMedia):
                         self.logger.warning(f"Destination JSON file already exists: {new_json_file}")
                 self.media_path = dest_file
                 self.ext = dest_ext
+
+                # Restore EXIF data to converted file
+                self.logger.debug("Image converted; restoring EXIF data")
+                tags = {tag.replace("EXIF:", ""): value for tag, value in exif_data.items() if tag.startswith("EXIF:")}
+                self._update_tags(media_path=self.media_path, tags=tags)
+
                 self._write_json_data_to_media()
         except Exception as exc:
             self.logger.error(f"Failed conversion attempt via {method}: {self.media_path}\n{exc}")

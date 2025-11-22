@@ -1,5 +1,6 @@
 import hashlib
 import os
+import pathlib
 import shutil
 import tempfile
 
@@ -126,9 +127,12 @@ class TruVideo(TruMedia):
         ext_lower = self.ext.lower()
 
         if ext_lower in FILE_EXTS.get('video_convert'):
-            # add the pre-converted file to be copied
-            files_to_copy[self.media_path] = f"{dest_dir}/{filename}{ext_lower}.ORIG"
             self.convert()
+
+        # If video was converted, copy the original source file with .ORIG extension
+        if self.media_path_source:
+            source_ext = pathlib.Path(self.media_path_source).suffix
+            files_to_copy[self.media_path_source] = f"{dest_dir}/{filename}{source_ext}.ORIG"
 
         dest_file = f"{dest_dir}/{filename}{self.ext}"
         if not os.path.isfile(dest_file):
