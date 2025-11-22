@@ -184,6 +184,15 @@ class TruMedia(ABC):
             except Exception as exc:
                 self.logger.error(f'Unable to get exif data for file: {self.media_path}:\n{exc}')
 
+            # If still no date found, try to get it from JSON file
+            if self._date_taken is None and self.json_data and "photoTakenTime" in self.json_data:
+                try:
+                    timestamp = int(self.json_data.get("photoTakenTime").get("timestamp"))
+                    self._date_taken = datetime.fromtimestamp(timestamp)
+                    self.logger.info(f"Using date from JSON photoTakenTime: {self._date_taken}")
+                except Exception as exc:
+                    self.logger.error(f"Unable to get date from JSON photoTakenTime:\n{exc}")
+
             if self._date_taken is None:
                 self.logger.error(f"Unable to determine date taken for {self.media_path}")
 
