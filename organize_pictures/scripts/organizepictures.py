@@ -4,6 +4,7 @@ import logging
 import os
 import argparse
 import re
+from importlib.metadata import version
 
 from organize_pictures import OrganizePictures, MEDIA_TYPES, OFFSET_CHARS
 
@@ -40,6 +41,12 @@ def parse_args():
     """
     parser = argparse.ArgumentParser(
         description='Run OrganizePictures Functions',
+    )
+
+    parser.add_argument(
+        '--version',
+        action='version',
+        version=f'%(prog)s {version("OrganizePictures")}',
     )
 
     parser.add_argument(
