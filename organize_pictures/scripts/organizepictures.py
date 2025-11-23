@@ -168,7 +168,7 @@ def main():
         # Display each result with appropriate formatting
         for key, count in result.items():
             icon, label, category = result_labels.get(key, (key.capitalize(), 'info'))
-            organizer.logger.info(f"{icon} {label:.<35} {count:>5}")
+            organizer.logger.info(f"{icon}\t{label:.<35} {count:>5}")
 
         organizer.logger.info("=" * 50)
 
