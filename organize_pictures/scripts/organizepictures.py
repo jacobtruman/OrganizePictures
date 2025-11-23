@@ -157,18 +157,18 @@ def main():
 
         # Define labels and emojis for each result type
         result_labels = {
-            'moved': ('✅ Files Moved', 'success'),
-            'duplicate': ('🔄 Duplicates Skipped', 'info'),
-            'failed': ('❌ Failed (No Date/Copy Error)', 'error'),
-            'manual': ('⚠️ Manual Review Required', 'warning'),
-            'invalid': ('🚫 Invalid Files', 'error'),
-            'deleted': ('🗑️ Files Deleted', 'info'),
+            'moved': ('✅', 'Files Moved', 'success'),
+            'duplicate': ('🔄', 'Duplicates Skipped', 'info'),
+            'failed': ('❌', 'Failed (No Date/Copy Error)', 'error'),
+            'manual': ('⚠️', 'Manual Review Required', 'warning'),
+            'invalid': ('🚫', 'Invalid Files', 'error'),
+            'deleted': ('🗑️', 'Files Deleted', 'info'),
         }
 
         # Display each result with appropriate formatting
         for key, count in result.items():
-            label, category = result_labels.get(key, (key.capitalize(), 'info'))
-            organizer.logger.info(f"{label:.<35} {count:>5}")
+            icon, label, category = result_labels.get(key, (key.capitalize(), 'info'))
+            organizer.logger.info(f"{icon} {label:.<35} {count:>5}")
 
         organizer.logger.info("=" * 50)
 
