@@ -462,6 +462,9 @@ cd OrganizePictures
 # Install uv if you haven't already
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
+# Install Git hooks (auto-bumps version on commit)
+./setup-hooks.sh
+
 # Sync dependencies (creates .venv and installs packages)
 uv sync
 
@@ -504,6 +507,36 @@ uv run trugiftomp4 --help
 - **Reliable**: Deterministic dependency resolution with `uv.lock`
 - **Compatible**: Works with existing `pyproject.toml` and `requirements.txt`
 - **Modern**: Built in Rust with best practices
+
+### Git Hooks
+
+This project includes Git hooks for automated version management:
+
+#### Automatic Version Bumping
+
+The `pre-commit` hook automatically increments the patch version in `pyproject.toml` with each commit.
+
+**Setup:**
+```bash
+./setup-hooks.sh
+```
+
+**Example:**
+```bash
+# Before commit: version = '1.0.11'
+git commit -m "Add new feature"
+# After commit: version = '1.0.12'
+```
+
+**Skip version bump for a specific commit:**
+```bash
+git commit --no-verify -m "Documentation update"
+```
+
+**Manual version changes:**
+If you manually update the major or minor version (e.g., `1.0.11` → `2.0.0`), the hook will continue bumping the patch version from there (next commit: `2.0.1`).
+
+See `hooks/README.md` for more details.
 
 ## Contributing
 

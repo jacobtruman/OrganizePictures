@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+"""
+Pre-commit hook to automatically bump the patch version in pyproject.toml
+"""
+import re
+import sys
+from pathlib import Path
+
+def bump_patch_version(pyproject_path):
+    """Read pyproject.toml, bump patch version, and write back"""
+    
+    # Read the file
+    content = pyproject_path.read_text()
+    
+    # Find the version line
+    version_pattern = r"(version\s*=\s*['\"])(\d+)\.(\d+)\.(\d+)(['\"])"
+    match = re.search(version_pattern, content)
+    
+    if not match:
+        print("Warning: Could not find version in pyproject.toml", file=sys.stderr)
+        return False
+    
+    # Extract version components
+    prefix = match.group(1)
+    major = int(match.group(2))
+    minor = int(match.group(3))
+    patch = int(match.group(4))
+    suffix = match.group(5)
+    
+    # Bump patch version
+    new_patch = patch + 1
+    old_version = f"{major}.{minor}.{patch}"
+    new_version = f"{major}.{minor}.{new_patch}"
+    
+    # Replace version in content
+    new_content = re.sub(
+        version_pattern,
+        f"{prefix}{major}.{minor}.{new_patch}{suffix}",
+        content
+    )
+    
+    # Write back to file
+    pyproject_path.write_text(new_content)
+    
+    print(f"✓ Version bumped: {old_version} → {new_version}")
+    return True
+
+def main():
+    # Get the repository root
+    repo_root = Path(__file__).parent.parent.parent
+    pyproject_path = repo_root / "pyproject.toml"
+    
+    if not pyproject_path.exists():
+        print("Warning: pyproject.toml not found", file=sys.stderr)
+        sys.exit(0)
+    
+    # Bump the version
+    if bump_patch_version(pyproject_path):
+        # Stage the modified pyproject.toml
+        import subprocess
+        subprocess.run(["git", "add", str(pyproject_path)], check=True)
+    
+    sys.exit(0)
+
+if __name__ == "__main__":
+    main()
+

@@ -1,0 +1,13 @@
+#!/bin/bash
+# Post-checkout hook to automatically install other hooks
+# This runs after git clone or git checkout
+
+# Get the repository root
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+# Run the setup script if it exists
+if [ -f "$REPO_ROOT/setup-hooks.sh" ]; then
+    echo "🔄 Auto-installing Git hooks..."
+    bash "$REPO_ROOT/setup-hooks.sh"
+fi
+
