@@ -160,9 +160,9 @@ def main():
             'moved': ('✅ Files Moved', 'success'),
             'duplicate': ('🔄 Duplicates Skipped', 'info'),
             'failed': ('❌ Failed (No Date/Copy Error)', 'error'),
-            'manual': ('⚠️  Manual Review Required', 'warning'),
+            'manual': ('⚠️ Manual Review Required', 'warning'),
             'invalid': ('🚫 Invalid Files', 'error'),
-            'deleted': ('🗑️  Files Deleted', 'info'),
+            'deleted': ('🗑️ Files Deleted', 'info'),
         }
 
         # Display each result with appropriate formatting
