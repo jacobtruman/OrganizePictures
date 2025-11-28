@@ -73,7 +73,7 @@ class TruImage(TruMedia):
         return FILE_EXTS.get('image_preferred')
 
     def _date_field(self, date_field: str):
-        return f"EXIF:{date_field}"
+        return f"EXIF:{date_field}" if ':' not in date_field else date_field
 
     def _regenerate(self):
         """

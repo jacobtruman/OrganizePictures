@@ -6,7 +6,7 @@ MEDIA_TYPES = {
 }
 OFFSET_CHARS = 'YMDhms'
 
-EXIF_DATE_FIELDS = ['DateTimeOriginal', 'CreateDate']
+EXIF_DATE_FIELDS = ['DateTimeOriginal', 'CreateDate', 'XMP:MetadataDate']
 VIDEO_DATE_FIELDS = [
     'QuickTime:CreateDate',
     'QuickTime:TrackCreateDate',
@@ -22,6 +22,7 @@ DATE_FORMATS = {
     "mkv": "%Y-%m-%dT%H:%M:%SZ",
     "recorded": "%Y-%m-%d %H:%M:%S%z",
     "encoded": "%Y-%m-%d %H:%M:%S %Z",
+    "xmp": "%Y:%m:%d %H:%M:%SZ",
 }
 FILE_EXTS = {
     "image_convert": ['.heic'],
