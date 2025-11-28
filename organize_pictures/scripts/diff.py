@@ -10,6 +10,7 @@ import sys
 from functools import cache
 import time
 import tkinter as tk
+from tkinter import messagebox
 
 register_heif_opener()
 
@@ -19,13 +20,13 @@ def resize_image(_image_path: str, new_size: tuple[int, int], attempt: int = 0) 
 
     try:
         image = Image.open(_image_path)
-        try:
-            display_image(image)  # Display the collage image
-        except Exception as e:
-            print(f"Error displaying image: {e}")
-            # If display fails, just continue without showing it
-            pass
-        exit()
+        # try:
+        #     display_image(image)  # Display the collage image
+        # except Exception as e:
+        #     print(f"Error displaying image: {e}")
+        #     # If display fails, just continue without showing it
+        #     pass
+        # exit()
         tru_image = TruImage(_image_path)
         tru_or = tru_image.exif_data.get("EXIF:Orientation")
         match tru_or:
@@ -120,7 +121,7 @@ def add_to_delete() -> bool:
     root = tk.Tk()
     root.withdraw()  # Hide the main window
 
-    result = tk.messagebox.askyesno("Delete?", "Mark these files for deletion?")
+    result = messagebox.askyesno("Delete?", "Mark these files for deletion?")
     root.destroy()
 
     return result
@@ -158,7 +159,7 @@ def choose_file_to_keep(file1: str, file2: str) -> str:
 def main(base_dir: str, min_size: int = 800, diff_limit: float = 5, delete: bool = False):
     start = time.time()
 
-    files = sorted(glob(f"./{base_dir}/*.jpg"))
+    files = sorted(glob(f"{base_dir}/*.jpg"))
 
     image_min_size = get_min_size(min_size)
 
