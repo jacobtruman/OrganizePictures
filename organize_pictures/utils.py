@@ -6,7 +6,7 @@ MEDIA_TYPES = {
 }
 OFFSET_CHARS = 'YMDhms'
 
-EXIF_DATE_FIELDS = ['DateTimeOriginal', 'CreateDate', 'XMP:MetadataDate']
+EXIF_DATE_FIELDS = ['DateTimeOriginal', 'CreateDate'] #, 'XMP:MetadataDate']
 VIDEO_DATE_FIELDS = [
     'QuickTime:CreateDate',
     'QuickTime:TrackCreateDate',
