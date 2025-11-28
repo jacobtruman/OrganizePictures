@@ -8,6 +8,7 @@ the image database and the filesystem.
 
 import argparse
 import atexit
+import builtins
 import os
 import pathlib
 import sqlite3
@@ -30,7 +31,7 @@ MAX_FILES_PER_BATCH = 450
 
 def _print(*args, **kwargs):
     """Print with automatic stdout flush."""
-    __builtins__.print(*args, **kwargs)
+    builtins.print(*args, **kwargs)
     sys.stdout.flush()
 
 
@@ -290,22 +291,26 @@ def parse_arguments() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "-b",
         "--base-dir",
         default=DEFAULT_BASE_DIR,
         help=f"Base directory for images (default: {DEFAULT_BASE_DIR})",
     )
 
     parser.add_argument(
+        "-s",
         "--subdir",
         help="Subdirectory within base-dir to process",
     )
 
     parser.add_argument(
+        "-d",
         "--db-path",
         help="Path to database file (auto-detected if not specified)",
     )
 
     parser.add_argument(
+        "-m",
         "--max-files",
         type=int,
         default=MAX_FILES_PER_BATCH,
