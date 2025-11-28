@@ -1,167 +1,355 @@
 #!/usr/bin/env python
+"""
+Database cleanup utility for organizing pictures.
 
-import sys
+This script provides various operations to maintain consistency between
+the image database and the filesystem.
+"""
+
+import argparse
+import atexit
 import os
 import pathlib
 import sqlite3
+import sys
 from glob import glob
-import atexit
+from typing import Dict, List, Optional
 
 from pillow_heif import register_heif_opener
 
 from organize_pictures.TruImage import TruImage
+from organize_pictures.utils import MEDIA_TYPES
+
+
+# Constants
+TABLE_NAME = "image_hashes"
+DEFAULT_BASE_DIR = "/raid/media/Pictures"
+DEFAULT_DB_PATHS = ["/raid2/pictures.db", "./pictures.db"]
+MAX_FILES_PER_BATCH = 450
 
 
 def _print(*args, **kwargs):
+    """Print with automatic stdout flush."""
     __builtins__.print(*args, **kwargs)
     sys.stdout.flush()
 
 
 print = _print
 
-register_heif_opener()
 
-IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "heic"]
-# BASE_DIR = "/raid/media/Pictures"
-BASE_DIR = "/Users/jatruman/workspace/personal/OrganizePictures/tests"
+class DatabaseCleaner:
+    """Handles database cleanup operations for image organization."""
 
-if len(sys.argv) > 1 and os.path.isdir(f"{BASE_DIR}/{sys.argv[1]}"):
-    BASE_DIR = f"{BASE_DIR}/{sys.argv[1]}"
+    def __init__(self, db_path: str, base_dir: str):
+        """
+        Initialize the database cleaner.
 
-DB_FILENAME = 'pictures.db'
-TABLE_NAME = "image_hashes"
-if os.path.isfile(f'/raid2/{DB_FILENAME}'):
-    db_file = f'/raid2/{DB_FILENAME}'
-else:
-    db_file = f'./{DB_FILENAME}'
+        Args:
+            db_path: Path to the SQLite database file
+            base_dir: Base directory for image files
+        """
+        self.db_path = db_path
+        self.base_dir = base_dir
+        self.conn: Optional[sqlite3.Connection] = None
+        self.cursor: Optional[sqlite3.Cursor] = None
 
-if not os.path.isfile(db_file):
-    print(f"DB file '{db_file}' not found")
-    exit()
+        self._connect()
+        atexit.register(self.close)
 
-conn = sqlite3.connect(db_file)
-c = conn.cursor()
+    def _connect(self):
+        """Establish database connection."""
+        if not os.path.isfile(self.db_path):
+            raise FileNotFoundError(f"Database file '{self.db_path}' not found")
 
+        self.conn = sqlite3.connect(self.db_path)
+        self.cursor = self.conn.cursor()
 
-def complete():
-    print("EXIT: Committing final records")
-    conn.commit()
-    conn.close()
+    def close(self):
+        """Commit changes and close database connection."""
+        if self.conn:
+            print("EXIT: Committing final records")
+            self.conn.commit()
+            self.conn.close()
+            self.conn = None
+            self.cursor = None
 
+    def restart_script(self):
+        """Restart the script (useful for batch processing)."""
+        self.close()
+        print("RESTARTING")
+        os.execv(sys.executable, [sys.executable] + sys.argv)
 
-atexit.register(complete)
+    def get_records(self) -> Dict[str, str]:
+        """
+        Get all database records for images in the base directory.
 
+        Returns:
+            Dictionary mapping image paths to their hashes
+        """
+        sql = "SELECT * FROM {} WHERE image_path LIKE ?".format(TABLE_NAME)
+        pattern = f"{self.base_dir}%"
+        return dict(self.cursor.execute(sql, (pattern,)).fetchall())
 
-def restart():
-    complete()
-    print("RESTARTING")
-    os.execv(sys.argv[0], sys.argv)
+    def remove_record(self, image_path: str):
+        """
+        Remove a record from the database.
 
+        Args:
+            image_path: Path to the image file
+        """
+        sql = f"DELETE FROM {TABLE_NAME} WHERE image_path = ?"
+        print(f"Removing record: {image_path}")
+        self.cursor.execute(sql, (image_path,))
 
-def get_records():
-    sql = f"SELECT * FROM {TABLE_NAME} WHERE image_path LIKE \"{BASE_DIR}%\""
-    return dict(c.execute(sql).fetchall())
+    def update_record_path(self, old_path: str, new_path: str):
+        """
+        Update the path of a record in the database.
 
+        Args:
+            old_path: Current image path
+            new_path: New image path
+        """
+        sql = f"UPDATE {TABLE_NAME} SET image_path = ? WHERE image_path = ?"
+        print(f"Updating record: {old_path} -> {new_path}")
+        self.cursor.execute(sql, (new_path, old_path))
 
-def remove_record(image_path):
-    sql = f"DELETE FROM {TABLE_NAME} WHERE image_path = \"{image_path}\""
-    print(f"Removing record: {image_path}")
-    c.execute(sql)
+    def insert_image_hash(self, image: TruImage) -> bool:
+        """
+        Insert an image hash into the database.
 
+        Args:
+            image: TruImage instance
 
-def update_record(image_path, image_path_new):
-    sql = f"UPDATE {TABLE_NAME} SET image_path = \"{image_path_new}\" WHERE image_path = \"{image_path}\""
-    print(f"Updating record: {image_path} -> {image_path_new}")
-    c.execute(sql)
+        Returns:
+            True if inserted successfully, False otherwise
+        """
+        if image.hash is None:
+            return False
 
-
-def insert_image_hash(_image: TruImage):
-    if _image.hash is not None:
-        sql = f'INSERT INTO image_hashes VALUES ("{_image.media_path}","{_image.hash}")'
-        c.execute(sql)
+        sql = f"INSERT INTO {TABLE_NAME} VALUES (?, ?)"
+        self.cursor.execute(sql, (image.media_path, image.hash))
         return True
-    return False
 
+    def update_image_hash(self, image: TruImage) -> bool:
+        """
+        Update an image hash in the database.
 
-def update_image_hash(_image: TruImage):
-    if _image.hash is not None:
-        sql = f'UPDATE image_hashes SET hash = "{_image.hash}" WHERE image_path = "{_image.media_path}"'
-        print(f"Updating record: {_image.media_path}: {_image.hash}")
-        c.execute(sql)
+        Args:
+            image: TruImage instance
+
+        Returns:
+            True if updated successfully, False otherwise
+        """
+        if image.hash is None:
+            return False
+
+        sql = f"UPDATE {TABLE_NAME} SET hash = ? WHERE image_path = ?"
+        print(f"Updating record: {image.media_path}: {image.hash}")
+        self.cursor.execute(sql, (image.hash, image.media_path))
         return True
-    return False
+
+    def get_image_paths(self, pattern: str = "**/*", recursive: bool = True) -> List[str]:
+        """
+        Get all image file paths in the base directory.
+
+        Args:
+            pattern: Glob pattern for file matching
+            recursive: Whether to search recursively
+
+        Returns:
+            List of absolute image file paths
+        """
+        return [
+            os.path.abspath(file)
+            for file in sorted(glob(f"{self.base_dir}/{pattern}", recursive=recursive))
+            if pathlib.Path(file).suffix.lower() in MEDIA_TYPES['image']
+        ]
+
+    def get_json_paths(self, pattern: str = "**/*", recursive: bool = True) -> List[str]:
+        """
+        Get all JSON file paths in the base directory.
+
+        Args:
+            pattern: Glob pattern for file matching
+            recursive: Whether to search recursively
+
+        Returns:
+            List of absolute JSON file paths
+        """
+        return [
+            os.path.abspath(file)
+            for file in sorted(glob(f"{self.base_dir}/{pattern}", recursive=recursive))
+            if pathlib.Path(file).suffix.replace(".", "").lower() == "json"
+        ]
+
+    def reconcile_db(self, max_files: int = MAX_FILES_PER_BATCH):
+        """
+        Add missing image records to the database.
+
+        Args:
+            max_files: Maximum number of files to process before restarting
+        """
+        processed = 0
+        records = self.get_records()
+        image_paths = self.get_image_paths()
+
+        for image_path in image_paths:
+            if image_path not in records:
+                processed += 1
+                image = TruImage(media_path=image_path)
+                print(f"Record not found: {image_path}")
+
+                if self.insert_image_hash(image):
+                    print(f"[{processed}]\tInserted record: {image_path}")
+
+                del image
+
+                if processed >= max_files:
+                    self.restart_script()
+
+    def reconcile_files(self):
+        """Remove database records for images that no longer exist."""
+        records = self.get_records()
+        image_paths = self.get_image_paths()
+
+        for image_path in records.keys():
+            print(image_path)
+            if image_path not in image_paths:
+                print(f"Image not found: {image_path}")
+                self.remove_record(image_path)
+
+    def reconcile_json_files(self):
+        """Remove JSON files that don't have corresponding image files."""
+        json_paths = self.get_json_paths()
+
+        for json_path in json_paths:
+            print(json_path)
+            image_file = json_path.replace(".json", "")
+
+            if not os.path.isfile(image_file):
+                print(f"Removing JSON file without image: {json_path}")
+                os.remove(json_path)
+
+    def init_files(self):
+        """Initialize all image files and update their hashes if regenerated."""
+        image_paths = self.get_image_paths()
+
+        for image_path in image_paths:
+            print(f"Initializing: {image_path}", end="\x1b[1K\r")
+
+            try:
+                image = TruImage(media_path=image_path)
+
+                if image.valid:
+                    print(f"Successfully initialized: {image.media_path}")
+                    if image.regenerated:
+                        print(f"Regenerated: {image.media_path}")
+                        self.update_image_hash(image)
+                else:
+                    print(f"Failed to initialize; invalid image: {image.media_path}")
+
+            except Exception as e:
+                print(f"Failed to initialize: {image_path}")
+                raise e
 
 
-def get_image_paths(_base_dir: str = '.', pattern: str = '**/*', recursive: bool = True):
-    return [
-        os.path.abspath(_file) for _file in sorted(glob(f"{BASE_DIR}/{pattern}", recursive=recursive))
-        if pathlib.Path(_file).suffix.replace(".", "").lower() in IMAGE_EXTENSIONS
-    ]
+def find_database() -> str:
+    """
+    Find the database file from default locations.
+
+    Returns:
+        Path to the database file
+
+    Raises:
+        FileNotFoundError: If no database file is found
+    """
+    for db_path in DEFAULT_DB_PATHS:
+        if os.path.isfile(db_path):
+            return db_path
+
+    raise FileNotFoundError(
+        f"Database file not found in any of these locations: {DEFAULT_DB_PATHS}"
+    )
 
 
-def get_json_paths(_base_dir: str = '.', pattern: str = '**/*', recursive: bool = True):
-    return [
-        os.path.abspath(_file) for _file in sorted(glob(f"{BASE_DIR}/{pattern}", recursive=recursive))
-        if pathlib.Path(_file).suffix.replace(".", "").lower() in ['json']
-    ]
+def parse_arguments() -> argparse.Namespace:
+    """
+    Parse command-line arguments.
+
+    Returns:
+        Parsed arguments
+    """
+    parser = argparse.ArgumentParser(
+        description="Database cleanup utility for organizing pictures"
+    )
+
+    parser.add_argument(
+        "operation",
+        choices=["reconcile-db", "reconcile-files", "reconcile-json", "init-files"],
+        help="Operation to perform",
+    )
+
+    parser.add_argument(
+        "--base-dir",
+        default=DEFAULT_BASE_DIR,
+        help=f"Base directory for images (default: {DEFAULT_BASE_DIR})",
+    )
+
+    parser.add_argument(
+        "--subdir",
+        help="Subdirectory within base-dir to process",
+    )
+
+    parser.add_argument(
+        "--db-path",
+        help="Path to database file (auto-detected if not specified)",
+    )
+
+    parser.add_argument(
+        "--max-files",
+        type=int,
+        default=MAX_FILES_PER_BATCH,
+        help=f"Maximum files to process per batch (default: {MAX_FILES_PER_BATCH})",
+    )
+
+    return parser.parse_args()
 
 
-def reconcile_db():
-    max_files = 450
-    processed = 0
-    records = get_records()
-    image_paths = get_image_paths(_base_dir=BASE_DIR)
-    for image_path in image_paths:
-        if image_path not in records:
-            processed += 1
-            image = TruImage(media_path=image_path)
-            print(f"Record not found: {image_path}")
-            if insert_image_hash(image):
-                print(f"[{processed}]\tInserted record: {image_path}")
-            del image
-            if processed >= max_files:
-                restart()
+def main():
+    """Main entry point for the cleandb command."""
+    register_heif_opener()
+
+    args = parse_arguments()
+
+    # Determine base directory
+    base_dir = args.base_dir
+    if args.subdir:
+        subdir_path = os.path.join(base_dir, args.subdir)
+        if not os.path.isdir(subdir_path):
+            print(f"Error: Subdirectory '{subdir_path}' does not exist")
+            sys.exit(1)
+        base_dir = subdir_path
+
+    # Determine database path
+    db_path = args.db_path if args.db_path else find_database()
+
+    print(f"Base directory: {base_dir}")
+    print(f"Database: {db_path}")
+    print(f"Operation: {args.operation}")
+    print()
+
+    # Create cleaner and run operation
+    cleaner = DatabaseCleaner(db_path, base_dir)
+
+    if args.operation == "reconcile-db":
+        cleaner.reconcile_db(max_files=args.max_files)
+    elif args.operation == "reconcile-files":
+        cleaner.reconcile_files()
+    elif args.operation == "reconcile-json":
+        cleaner.reconcile_json_files()
+    elif args.operation == "init-files":
+        cleaner.init_files()
 
 
-def reconcile_files():
-    records = get_records()
-    image_paths = get_image_paths(_base_dir=BASE_DIR)
-    for image_path, _ in records.items():
-        print(image_path)
-        if image_path not in image_paths:
-            print(f"Image not found: {image_path}")
-            remove_record(image_path)
-
-
-def reconcile_json_files():
-    json_paths = get_json_paths(_base_dir=BASE_DIR)
-    for json_path in json_paths:
-        print(json_path)
-        image_file = json_path.replace(".json", "")
-        if not os.path.isfile(image_file):
-            print(f"Removing JSON file without image: {json_path}")
-            os.remove(json_path)
-
-
-def init_files():
-    image_paths = get_image_paths(_base_dir=BASE_DIR)
-    for image_path in image_paths:
-        print(f"Initializing: {image_path}", end='\x1b[1K\r')
-        try:
-            image = TruImage(media_path=image_path)
-            if image.valid:
-                print(f"Successfully initialized: {image.media_path}")
-                if image.regenerated:
-                    print(f"Regenerated: {image.media_path}")
-                    update_image_hash(image)
-            else:
-                print(f"Failed to initialize; invalid image: {image.media_path}")
-        except Exception as e:
-            print(f"Failed to initialize: {image_path}")
-            raise e
-
-
-# reconcile_db()
-# reconcile_files()
-# reconcile_json_files()
-# init_files()
+if __name__ == "__main__":
+    main()
