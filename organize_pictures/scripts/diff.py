@@ -128,13 +128,27 @@ def add_to_delete() -> bool:
 
 
 def delete_files(file_pairs: list[tuple[str, str]]):
-    """Delete the second file in each pair."""
+    """Delete the second file in each pair and associated files (json, mp4, heic)."""
     for file1, file2 in file_pairs:
+        # Delete the main jpg file
         try:
             print(f"Deleting: {file2}")
             os.remove(file2)
         except Exception as e:
             print(f"Error deleting {file2}: {e}")
+
+        # Delete associated files (json, mp4, heic)
+        base_path = os.path.splitext(file2)[0]
+        associated_extensions = ['.json', '.JSON', '.mp4', '.MP4', '.heic', '.HEIC']
+
+        for ext in associated_extensions:
+            associated_file = base_path + ext
+            if os.path.exists(associated_file):
+                try:
+                    print(f"Deleting associated file: {associated_file}")
+                    os.remove(associated_file)
+                except Exception as e:
+                    print(f"Error deleting {associated_file}: {e}")
 
 
 def get_file_size(file_path: str) -> int:
