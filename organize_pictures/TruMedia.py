@@ -195,6 +195,24 @@ class TruMedia(ABC):
                 except Exception as exc:
                     self.logger.error(f'Unable to get exif data for file: {self.media_path}:\n{exc}')
 
+            # Third priority: Try to parse date from filename
+            if self._date_taken is None:
+                try:
+                    filename = os.path.basename(self.media_path)
+                    # Remove extension
+                    filename_no_ext = os.path.splitext(filename)[0]
+                    # Try each date format to parse the filename
+                    for format_name, date_format in DATE_FORMATS.items():
+                        try:
+                            self._date_taken = datetime.strptime(filename_no_ext, date_format)
+                            self.logger.info(f"Using date from filename with format '{format_name}': {self._date_taken}")
+                            break
+                        except ValueError:
+                            # This format didn't match, try the next one
+                            continue
+                except Exception as exc:
+                    self.logger.error(f"Unable to parse date from filename: {exc}")
+
             if self._date_taken is None:
                 self.logger.error(f"Unable to determine date taken for {self.media_path}")
 

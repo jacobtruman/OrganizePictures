@@ -339,6 +339,96 @@ class TestTruMediaDatePriority:
         assert date.month == 8
         assert date.day == 1
 
+    @patch('organize_pictures.TruMedia.ExifToolHelper')
+    def test_date_taken_from_filename(self, mock_exif, tmp_path):
+        """Test date_taken extraction from filename when JSON and EXIF are not available"""
+        # Create test file with date in filename (using the 'filename' format)
+        test_file = tmp_path / "2024-03-15_14'30'45.jpg"
+        test_file.write_text("test")
+
+        # Mock EXIF data with no date fields
+        mock_eth = MagicMock()
+        mock_eth.get_metadata.return_value = [{}]
+        mock_exif.return_value.__enter__.return_value = mock_eth
+
+        media = ConcreteTruMedia(media_path=str(test_file))
+        date = media.date_taken
+
+        # Should parse date from filename
+        assert date is not None
+        assert isinstance(date, datetime)
+        assert date.year == 2024
+        assert date.month == 3
+        assert date.day == 15
+        assert date.hour == 14
+        assert date.minute == 30
+        assert date.second == 45
+
+    @patch('organize_pictures.TruMedia.ExifToolHelper')
+    def test_filename_fallback_when_exif_fails(self, mock_exif, tmp_path):
+        """Test that filename parsing is used when EXIF data is invalid"""
+        # Create test file with date in filename
+        test_file = tmp_path / "2023-12-25_09'15'30.jpg"
+        test_file.write_text("test")
+
+        # Mock EXIF data with invalid date format
+        mock_eth = MagicMock()
+        mock_eth.get_metadata.return_value = [{
+            'DateTimeOriginal': 'invalid_date_format'
+        }]
+        mock_exif.return_value.__enter__.return_value = mock_eth
+
+        media = ConcreteTruMedia(media_path=str(test_file))
+        date = media.date_taken
+
+        # Should fall back to filename parsing
+        assert date is not None
+        assert date.year == 2023
+        assert date.month == 12
+        assert date.day == 25
+
+    @patch('organize_pictures.TruMedia.ExifToolHelper')
+    def test_filename_with_different_format(self, mock_exif, tmp_path):
+        """Test date_taken extraction from filename with different date format"""
+        # Create test file with date in default format
+        test_file = tmp_path / "2024-01-20 18:45:30.jpg"
+        test_file.write_text("test")
+
+        # Mock EXIF data with no date fields
+        mock_eth = MagicMock()
+        mock_eth.get_metadata.return_value = [{}]
+        mock_exif.return_value.__enter__.return_value = mock_eth
+
+        media = ConcreteTruMedia(media_path=str(test_file))
+        date = media.date_taken
+
+        # Should parse date from filename using default format
+        assert date is not None
+        assert date.year == 2024
+        assert date.month == 1
+        assert date.day == 20
+        assert date.hour == 18
+        assert date.minute == 45
+        assert date.second == 30
+
+    @patch('organize_pictures.TruMedia.ExifToolHelper')
+    def test_no_date_available(self, mock_exif, tmp_path):
+        """Test that date_taken is None when no date source is available"""
+        # Create test file with non-date filename
+        test_file = tmp_path / "random_filename.jpg"
+        test_file.write_text("test")
+
+        # Mock EXIF data with no date fields
+        mock_eth = MagicMock()
+        mock_eth.get_metadata.return_value = [{}]
+        mock_exif.return_value.__enter__.return_value = mock_eth
+
+        media = ConcreteTruMedia(media_path=str(test_file))
+        date = media.date_taken
+
+        # Should be None when no date can be determined
+        assert date is None
+
 
 class TestTruMediaCopy:
     """Test TruMedia copy functionality"""
