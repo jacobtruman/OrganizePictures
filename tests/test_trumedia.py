@@ -429,6 +429,37 @@ class TestTruMediaDatePriority:
         # Should be None when no date can be determined
         assert date is None
 
+    @patch('organize_pictures.TruMedia.ExifToolHelper')
+    def test_filename_date_written_back_to_file(self, mock_exif, tmp_path):
+        """Test that date parsed from filename is written back to file metadata"""
+        # Create test file with date in filename
+        test_file = tmp_path / "2024-03-15_14'30'45.jpg"
+        test_file.write_text("test")
+
+        # Mock EXIF data with no date fields
+        mock_eth = MagicMock()
+        mock_eth.get_metadata.return_value = [{}]
+        mock_exif.return_value.__enter__.return_value = mock_eth
+
+        media = ConcreteTruMedia(media_path=str(test_file))
+        date = media.date_taken
+
+        # Verify date was parsed
+        assert date is not None
+        assert date.year == 2024
+        assert date.month == 3
+        assert date.day == 15
+
+        # Verify _update_tags was called to write the date back to the file
+        # The mock should have been called with set_tags
+        assert mock_eth.set_tags.called
+        # Get the call arguments
+        call_args = mock_eth.set_tags.call_args
+        # Verify the tags contain date fields
+        tags = call_args[1]['tags']
+        assert 'DateTimeOriginal' in tags
+        assert tags['DateTimeOriginal'] == '2024-03-15 14:30:45'
+
 
 class TestTruMediaCopy:
     """Test TruMedia copy functionality"""

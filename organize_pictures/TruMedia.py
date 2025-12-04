@@ -206,6 +206,21 @@ class TruMedia(ABC):
                         try:
                             self._date_taken = datetime.strptime(filename_no_ext, date_format)
                             self.logger.info(f"Using date from filename with format '{format_name}': {self._date_taken}")
+                            # Write the parsed date back to the file metadata
+                            _date = self._date_taken.strftime(DATE_FORMATS.get("default"))
+                            tags = {}
+                            for field in self.date_fields:
+                                # Use the field name as-is for videos (they already have prefixes)
+                                # For images, use the field name without prefix (TruImage._date_field will add EXIF:)
+                                if self.media_type == "video":
+                                    # Videos: use the full field name (e.g., "QuickTime:CreateDate")
+                                    tags[field] = _date
+                                else:
+                                    # Images: use just the field name (e.g., "DateTimeOriginal")
+                                    # TruImage._date_field will add "EXIF:" prefix when needed
+                                    field_name = field.split(':')[-1] if ':' in field else field
+                                    tags[field_name] = _date
+                            self._update_tags(self.media_path, tags)
                             break
                         except ValueError:
                             # This format didn't match, try the next one
@@ -223,7 +238,20 @@ class TruMedia(ABC):
         self._date_taken = value
         self.logger.info(f"Setting date taken to {value}")
         _date = value.strftime(DATE_FORMATS.get("default"))
-        self._update_tags(self.media_path, {field: _date for field in EXIF_DATE_FIELDS})
+        # Use the appropriate date fields for the media type
+        tags = {}
+        for field in self.date_fields:
+            # Use the field name as-is for videos (they already have prefixes)
+            # For images, use the field name without prefix (TruImage._date_field will add EXIF:)
+            if self.media_type == "video":
+                # Videos: use the full field name (e.g., "QuickTime:CreateDate")
+                tags[field] = _date
+            else:
+                # Images: use just the field name (e.g., "DateTimeOriginal")
+                # TruImage._date_field will add "EXIF:" prefix when needed
+                field_name = field.split(':')[-1] if ':' in field else field
+                tags[field_name] = _date
+        self._update_tags(self.media_path, tags)
 
     def _date_field(self, date_field: str):
         return date_field
