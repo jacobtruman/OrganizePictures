@@ -163,7 +163,8 @@ class DatabaseCleaner:
         return [
             os.path.abspath(file)
             for file in sorted(glob(f"{self.base_dir}/{pattern}", recursive=recursive))
-            if pathlib.Path(file).suffix.lower() in MEDIA_TYPES['image']
+            # if pathlib.Path(file).suffix.lower() in MEDIA_TYPES['image']
+            if pathlib.Path(file).suffix.lower() == ".jpg"
         ]
 
     def get_json_paths(self, pattern: str = "**/*", recursive: bool = True) -> List[str]:
