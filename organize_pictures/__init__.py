@@ -98,6 +98,29 @@ class OrganizePictures:
     def init_offset():
         return dict.fromkeys(list(OFFSET_CHARS), 0)
 
+    def _apply_offset(self, date_taken):
+        """
+        Apply the configured offset to a datetime object
+        :param date_taken: datetime object to apply offset to
+        :return: datetime object with offset applied
+        """
+        if date_taken is None:
+            return None
+
+        # Calculate the timedelta from the offset dictionary
+        delta = timedelta(
+            days=self.offset.get('Y', 0) * 365 + self.offset.get('M', 0) * 30 + self.offset.get('D', 0),
+            hours=self.offset.get('h', 0),
+            minutes=self.offset.get('m', 0),
+            seconds=self.offset.get('s', 0)
+        )
+
+        # Apply the offset (add or subtract based on minus flag)
+        if self.minus:
+            return date_taken - delta
+        else:
+            return date_taken + delta
+
     @staticmethod
     def _file_path(file_info):
         """
@@ -245,6 +268,8 @@ class OrganizePictures:
                 continue
 
             if media.date_taken is not None:
+                # Apply offset if configured
+                media.date_taken = self._apply_offset(media.date_taken)
                 new_file_info = self._get_new_fileinfo(media)
                 if not new_file_info.get('duplicate'):
                     try:

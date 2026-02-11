@@ -104,7 +104,24 @@ def main():
     """Main function."""
     # Default configuration
     base_dir = "/Users/jatruman/Desktop/newpics"
-    category_folders = ["beauwedding", "tballSophia", "2018/Jul", "lacrosse"]
+    category_folders = [
+        "basketballGrant",
+        "basketballDrake",
+        "danceEva",
+        "danceSophia",
+        "adobe",
+        "adobe/arcade",
+        "house",
+        "lacrosse",
+        "tballSophia",
+        "schoolPics",
+        "2019/Jan",
+        "table",
+        "youngMensDrake",
+        "youngMensGrantDrake",
+        "sewingCamp",
+        "scienceDrakeEva",
+    ]
     
     # Parse command line arguments
     dry_run = "--dry-run" in sys.argv or len(sys.argv) == 1  # Default to dry-run if no args
