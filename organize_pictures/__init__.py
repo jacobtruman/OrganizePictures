@@ -211,8 +211,10 @@ class OrganizePictures:
                 medias[file_base_name] = self._init_media_file(media_file_path=media_file_path)
             else:
                 self.logger.error(f"Manual intervention required for file (duplicate filename base): {media_file_path}")
-                del medias[file_base_name]
-                self.excluded.append(file_base_name)
+                if file_base_name in medias:
+                    del medias[file_base_name]
+                if file_base_name not in self.excluded:
+                    self.excluded.append(file_base_name)
                 self.results['manual'] += 1
         return dict(sorted(medias.items()))
 
