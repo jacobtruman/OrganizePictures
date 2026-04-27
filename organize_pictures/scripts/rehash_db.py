@@ -16,6 +16,11 @@ Behavior:
   - Rows whose hash didn't change are skipped silently.
   - Use -n/--dry-run to see what would happen without writing.
 
+Progress is rendered with tqdm pinned to the bottom of the terminal. Log lines
+print above it via tqdm's logging redirect, so they never collide with the
+progress bar. When stderr isn't a TTY (piped, CI), tqdm degrades to plain
+periodic updates.
+
 The script writes incrementally (commit per N updates) so it's safe to Ctrl-C.
 """
 from __future__ import annotations
@@ -25,10 +30,11 @@ import os
 import pathlib
 import sqlite3
 import sys
-import time
 from contextlib import closing
 
 from pillow_heif import register_heif_opener
+from tqdm import tqdm
+from tqdm.contrib.logging import logging_redirect_tqdm
 
 from organize_pictures.TruImage import TruImage
 from organize_pictures.TruVideo import TruVideo
@@ -38,7 +44,6 @@ from organize_pictures.utils import MEDIA_TYPES, get_logger
 TABLE_NAME = "image_hashes"
 DB_FILENAME = "pictures.db"
 COMMIT_EVERY = 100
-PROGRESS_EVERY = 50
 
 
 def find_db_file(explicit: str | None) -> str:
@@ -108,6 +113,13 @@ def parse_args(argv=None):
         help="Enable verbose (DEBUG) logging on the console",
         default=False,
     )
+    p.add_argument(
+        "--no-progress",
+        dest="progress",
+        action="store_false",
+        help="Disable the progress bar (use plain log output)",
+        default=True,
+    )
     return p.parse_args(argv)
 
 
@@ -151,68 +163,77 @@ def main(argv=None) -> int:
         pending_updates: list[tuple[str, str]] = []
         pending_deletes: list[tuple[str]] = []
 
-        t0 = time.perf_counter()
-        for i, (path, old_hash) in enumerate(rows, 1):
-            if i % PROGRESS_EVERY == 0 or i == total:
-                elapsed = time.perf_counter() - t0
-                rate = i / elapsed if elapsed else 0.0
-                logger.info(
-                    "[%d/%d] %.1f rows/s  updated=%d missing=%d unhashable=%d",
-                    i, total, rate,
-                    stats["updated"],
-                    stats["missing_kept"] + stats["missing_pruned"],
-                    stats["unhashable"],
-                )
+        # tqdm renders to stderr by default, matching the project logger's stream.
+        # disable=None lets tqdm auto-detect whether stderr is a TTY (which is
+        # what we want when --no-progress is not set); --no-progress forces it off.
+        bar = tqdm(
+            total=total,
+            unit="row",
+            dynamic_ncols=True,
+            disable=(not args.progress) or None,
+            leave=False,
+        )
 
-            if not os.path.isfile(path):
-                if args.prune_missing:
-                    stats["missing_pruned"] += 1
-                    pending_deletes.append((path,))
-                    logger.debug("MISSING (pruned): %s", path)
-                else:
-                    stats["missing_kept"] += 1
-                    logger.warning("MISSING (kept): %s", path)
-                continue
+        with logging_redirect_tqdm(loggers=[logger]), bar:
+            for path, old_hash in rows:
+                bar.set_postfix_str(_postfix(stats, path), refresh=False)
 
-            media_type = detect_media_type(path)
-            if media_type is None:
-                stats["unknown_type"] += 1
-                logger.warning("UNKNOWN TYPE: %s", path)
-                continue
+                if not os.path.isfile(path):
+                    if args.prune_missing:
+                        stats["missing_pruned"] += 1
+                        pending_deletes.append((path,))
+                        logger.debug("MISSING (pruned): %s", path)
+                    else:
+                        stats["missing_kept"] += 1
+                        logger.warning("MISSING (kept): %s", path)
+                    bar.update(1)
+                    continue
 
-            try:
-                new_hash = compute_new_hash(path, media_type, logger)
-            except Exception as exc:  # noqa: BLE001 -- migration tool, log and continue
-                stats["unhashable"] += 1
+                media_type = detect_media_type(path)
+                if media_type is None:
+                    stats["unknown_type"] += 1
+                    logger.warning("UNKNOWN TYPE: %s", path)
+                    bar.update(1)
+                    continue
+
                 try:
-                    exc_summary = f"{type(exc).__name__}: {exc!s}"
-                except Exception:  # noqa: BLE001
-                    exc_summary = type(exc).__name__
-                logger.error("HASH ERROR: %s -- %s", path, exc_summary)
-                continue
+                    new_hash = compute_new_hash(path, media_type, logger)
+                except Exception as exc:  # noqa: BLE001 -- migration tool, log and continue
+                    stats["unhashable"] += 1
+                    try:
+                        exc_summary = f"{type(exc).__name__}: {exc!s}"
+                    except Exception:  # noqa: BLE001
+                        exc_summary = type(exc).__name__
+                    logger.error("HASH ERROR: %s -- %s", path, exc_summary)
+                    bar.update(1)
+                    continue
 
-            if not new_hash:
-                stats["unhashable"] += 1
-                logger.warning("HASH NONE: %s", path)
-                continue
+                if not new_hash:
+                    stats["unhashable"] += 1
+                    logger.warning("HASH NONE: %s", path)
+                    bar.update(1)
+                    continue
 
-            if new_hash == old_hash:
-                stats["unchanged"] += 1
-                logger.debug("UNCHANGED: %s", path)
-                continue
+                if new_hash == old_hash:
+                    stats["unchanged"] += 1
+                    logger.debug("UNCHANGED: %s", path)
+                    bar.update(1)
+                    continue
 
-            stats["updated"] += 1
-            logger.debug("UPDATE: %s  %s -> %s", path, old_hash, new_hash)
-            pending_updates.append((new_hash, path))
+                stats["updated"] += 1
+                logger.debug("UPDATE: %s  %s -> %s", path, old_hash, new_hash)
+                pending_updates.append((new_hash, path))
 
-            if not args.dry_run and len(pending_updates) >= COMMIT_EVERY:
-                cur.executemany(
-                    f"UPDATE {TABLE_NAME} SET hash = ? WHERE image_path = ?",
-                    pending_updates,
-                )
-                conn.commit()
-                logger.debug("Committed %d updates", len(pending_updates))
-                pending_updates.clear()
+                if not args.dry_run and len(pending_updates) >= COMMIT_EVERY:
+                    cur.executemany(
+                        f"UPDATE {TABLE_NAME} SET hash = ? WHERE image_path = ?",
+                        pending_updates,
+                    )
+                    conn.commit()
+                    logger.debug("Committed %d updates", len(pending_updates))
+                    pending_updates.clear()
+
+                bar.update(1)
 
         if not args.dry_run:
             if pending_updates:
@@ -238,6 +259,17 @@ def main(argv=None) -> int:
         if args.dry_run:
             logger.warning("(dry run; nothing written)")
     return 0
+
+
+def _postfix(stats: dict, current_path: str) -> str:
+    label = os.path.basename(current_path)
+    if len(label) > 40:
+        label = "..." + label[-37:]
+    return (
+        f"upd={stats['updated']} unc={stats['unchanged']} "
+        f"miss={stats['missing_kept'] + stats['missing_pruned']} "
+        f"err={stats['unhashable']} {label}"
+    )
 
 
 if __name__ == "__main__":
