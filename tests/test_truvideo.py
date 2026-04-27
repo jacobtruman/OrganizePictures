@@ -156,23 +156,22 @@ class TestTruVideoHash:
 
     @patch('organize_pictures.TruVideo.ffmpeg')
     def test_get_media_hash(self, mock_ffmpeg, sample_video):
-        """Test _get_media_hash generates hash"""
-        # Mock ffmpeg operations
+        """Test _get_media_hash parses ffmpeg md5 muxer output"""
         mock_stream = MagicMock()
         mock_ffmpeg.input.return_value = mock_stream
         mock_ffmpeg.output.return_value = mock_stream
-        mock_ffmpeg.run.return_value = (None, None)
-        
+        mock_ffmpeg.run.return_value = (b"MD5=deadbeefdeadbeefdeadbeefdeadbeef\n", b"")
+
         with patch('organize_pictures.TruVideo.TruVideo._reconcile_mime_type'):
             with patch('organize_pictures.TruVideo.TruVideo._write_json_data_to_media'):
-                with patch('builtins.open', create=True) as mock_open:
-                    mock_open.return_value.__enter__.return_value.read.return_value = b"test data"
-                    
-                    video = TruVideo(media_path=sample_video)
-                    hash_value = video.hash
-                    
-                    assert hash_value is not None
-                    assert isinstance(hash_value, str)
+                video = TruVideo(media_path=sample_video)
+                hash_value = video.hash
+
+                assert hash_value == "deadbeefdeadbeefdeadbeefdeadbeef"
+                mock_ffmpeg.output.assert_called_once()
+                _, kwargs = mock_ffmpeg.output.call_args
+                assert kwargs.get("format") == "md5"
+                assert kwargs.get("codec") == "copy"
 
 
 class TestTruVideoConvert:

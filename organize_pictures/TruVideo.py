@@ -1,8 +1,6 @@
-import hashlib
 import os
 import pathlib
 import shutil
-import tempfile
 
 import ffmpeg
 
@@ -14,8 +12,14 @@ from organize_pictures.TruMedia import TruMedia
 
 class TruVideo(TruMedia):
 
-    def __init__(self, media_path, json_file_path=None, logger=None, verbose=False):
-        super().__init__(media_path=media_path, json_file_path=json_file_path, logger=logger, verbose=verbose)
+    def __init__(self, media_path, json_file_path=None, logger=None, verbose=False, dry_run=False):
+        super().__init__(
+            media_path=media_path,
+            json_file_path=json_file_path,
+            logger=logger,
+            verbose=verbose,
+            dry_run=dry_run,
+        )
 
     @property
     def media_type(self):
@@ -40,17 +44,20 @@ class TruVideo(TruMedia):
         }
 
     @TruMedia.valid.setter
-    def valid(self, _):
-        if self.ext.lower() not in MEDIA_TYPES.get('video'):
-            self.logger.error(f"Invalid media file: {self.media_path}")
-            self._valid = False
-        elif self._is_animation():
-            self.logger.error(f"Skipping animation: {self.media_path}")
-            self._valid = False
-        else:
-            self._reconcile_mime_type()
-        if self._valid:
-            self._write_json_data_to_media()
+    def valid(self, value):
+        if value is None:
+            if self.ext.lower() not in MEDIA_TYPES.get('video'):
+                self.logger.error(f"Invalid media file: {self.media_path}")
+                self._valid = False
+            elif self._is_animation():
+                self.logger.error(f"Skipping animation: {self.media_path}")
+                self._valid = False
+            else:
+                self._reconcile_mime_type()
+            if self._valid:
+                self._write_json_data_to_media()
+            return
+        self._valid = bool(value)
 
     @property
     def preferred_ext(self):
@@ -65,30 +72,34 @@ class TruVideo(TruMedia):
         return False
 
     def _get_media_hash(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            try:
-                self.logger.debug(f"Getting hash for {self.media_path}")
-                temp_file = f"{temp_dir}/{os.path.basename(self.media_path)}"
-                stream = ffmpeg.input(self.media_path)
-                stream = ffmpeg.output(
-                    stream,
-                    temp_file,
-                    acodec="aac",
-                    vcodec="h264",
-                    map_metadata=0,
-                    loglevel="verbose" if self.verbose else "quiet"
+        # Hash the raw encoded video/audio packets (no re-encode, no container/metadata bytes).
+        # `-c copy -f md5` streams packets through ffmpeg's md5 muxer, so two files whose
+        # underlying streams are identical but containers differ will hash the same.
+        try:
+            self.logger.debug(f"Getting hash for {self.media_path}")
+            stream = ffmpeg.input(self.media_path)
+            stream = ffmpeg.output(
+                stream,
+                "pipe:",
+                format="md5",
+                codec="copy",
+                loglevel="verbose" if self.verbose else "quiet",
+            )
+            out, _ = ffmpeg.run(stream, capture_stdout=True, capture_stderr=True)
+            digest_line = out.decode("ascii", errors="replace").strip()
+            if not digest_line.startswith("MD5="):
+                self.logger.error(
+                    f"Unexpected ffmpeg md5 output for {self.media_path}: {digest_line!r}"
                 )
-                _, err = ffmpeg.run(stream)
-                if err:
-                    self.logger.error(err)
-                    exit()
-
-                with open(temp_file, "rb") as f:
-                    s = f.read()
-                    self._hash = hashlib.md5(s).hexdigest()
-            except Exception:  # pylint: disable=broad-except
-                self.logger.error(f"Error opening video: {self.media_path}")
                 self._hash = None
+                return
+            self._hash = digest_line.split("=", 1)[1].strip()
+        except (OSError, ffmpeg.Error) as exc:
+            stderr = getattr(exc, "stderr", b"")
+            if isinstance(stderr, bytes):
+                stderr = stderr.decode("utf-8", errors="replace")
+            self.logger.error(f"Error hashing video: {self.media_path}\n{exc}\n{stderr}")
+            self._hash = None
 
     def convert(self, dest_ext: str | None = None):
         if dest_ext is None:
@@ -135,22 +146,20 @@ class TruVideo(TruMedia):
             files_to_copy[self.media_path_source] = f"{dest_dir}/{filename}{source_ext}.ORIG"
 
         dest_file = f"{dest_dir}/{filename}{self.ext}"
-        if not os.path.isfile(dest_file):
-            files_to_copy[self.media_path] = dest_file
-
-            # Use parent class helper to handle JSON file
-            self._add_json_file_to_copy(files_to_copy, dest_dir, filename)
-
-            for source, dest in files_to_copy.items():
-                if not os.path.isfile(dest):
-                    self.logger.info(f"Copying file:\n\tSource: {source}\n\tDestination: {dest}")
-                    shutil.copy(source, dest)
-                    self.logger.debug("Successfully copied file")
-                else:
-                    self.logger.warning(f"######### Destination file already exists: {dest_file}")
-                    exit()
-        else:
+        if os.path.isfile(dest_file):
             self.logger.warning(f"Destination file already exists: {dest_file}")
+            return files_to_copy
+
+        files_to_copy[self.media_path] = dest_file
+        self._add_json_file_to_copy(files_to_copy, dest_dir, filename)
+
+        for source, dest in files_to_copy.items():
+            if os.path.isfile(dest):
+                self.logger.warning(f"Destination file already exists, skipping copy: {dest}")
+                continue
+            self.logger.info(f"Copying file:\n\tSource: {source}\n\tDestination: {dest}")
+            shutil.copy(source, dest)
+            self.logger.debug("Successfully copied file")
 
         return files_to_copy
 
@@ -170,8 +179,6 @@ class TruVideo(TruMedia):
         """
         Return a user-friendly string representation
         """
-        import os
-
         filename = os.path.basename(self.media_path)
         status = "✅ Valid" if self.valid else "❌ Invalid"
 

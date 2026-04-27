@@ -143,10 +143,15 @@ def mock_video_exif_data():
 
 @pytest.fixture(autouse=True)
 def cleanup_log_files():
-    """Automatically cleanup log files after each test"""
+    """Reset the cached logger and cleanup log files after each test"""
     yield
-    
-    # Clean up log files
+
+    try:
+        from organize_pictures.utils import reset_logger
+        reset_logger()
+    except Exception:
+        pass
+
     log_files = [
         'organize_pictures.utils.log',
         'organize_pictures.TruMedia.log',
@@ -154,7 +159,7 @@ def cleanup_log_files():
         'organize_pictures.TruVideo.log',
         'organize_pictures.log'
     ]
-    
+
     for log_file in log_files:
         if os.path.exists(log_file):
             try:

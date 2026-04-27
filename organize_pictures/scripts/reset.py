@@ -47,23 +47,6 @@ def copy_files(src_path: str, dest_relative_path: str):
             print(f'Failed to copy {src_file_path} to {dest_file_path}. Reason: {e}')
 
 
-# Define the relative paths to the directories to be cleared and copied
-relative_paths_to_clear = ['../renamed', './Disneyland', './paris', './india']
-paths = {
-    '/Users/jatruman/Pictures/paris': './paris',
-    # '/Users/jatruman/Pictures/india': './india',
-    # '/Users/jatruman/Pictures/Disneyland': './Disneyland',
-}
-
-for relative_path in relative_paths_to_clear:
-    print(f"Clearing: {relative_path}")
-    clear(relative_path)
-
-for src_path, dest_relative_path in paths.items():
-    print(f"Copying files from {src_path} to {dest_relative_path}")
-    copy_files(src_path, dest_relative_path)
-
-
 def delete_all_records(db_relative_path: str):
     table_name = "image_hashes"
     # Get the absolute path
@@ -89,8 +72,23 @@ def delete_all_records(db_relative_path: str):
             conn.close()
 
 
-# Define the relative path to the database file
-db_relative_path = '../pictures.db'
+def main():
+    relative_paths_to_clear = ['../renamed', './Disneyland', './paris', './india']
+    paths = {
+        '/Users/jatruman/Pictures/paris': './paris',
+    }
 
-# Delete all records in the database
-delete_all_records(db_relative_path)
+    for relative_path in relative_paths_to_clear:
+        print(f"Clearing: {relative_path}")
+        clear(relative_path)
+
+    for src_path, dest_relative_path in paths.items():
+        print(f"Copying files from {src_path} to {dest_relative_path}")
+        copy_files(src_path, dest_relative_path)
+
+    db_relative_path = '../pictures.db'
+    delete_all_records(db_relative_path)
+
+
+if __name__ == "__main__":
+    main()

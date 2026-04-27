@@ -1,14 +1,16 @@
 import logging
+import mimetypes
+import shutil
 from abc import abstractmethod, ABC
 from datetime import datetime
-from glob import glob
 import json
 import os
 import pathlib
-import re
 import xml.etree.ElementTree as ET
+from xml.parsers.expat import ExpatError
 
 import ffmpeg
+import magic
 from exiftool import ExifToolHelper
 from pillow_heif import register_heif_opener
 from dict2xml import dict2xml
@@ -27,9 +29,11 @@ class TruMedia(ABC):
             media_path: str,
             json_file_path: str | None = None,
             logger: logging.Logger | None = None,
-            verbose: bool = False
+            verbose: bool = False,
+            dry_run: bool = False
     ):
         self.verbose: bool = verbose
+        self.dry_run: bool = dry_run
         self.dev_mode: bool = False
         self.regenerated = False
         self.overwrite_comment = False
@@ -47,7 +51,7 @@ class TruMedia(ABC):
         self._hash = None
         self._media_type = None
         self._valid: bool = True
-        if self.ext.lower() != self.preferred_ext:
+        if not self.dry_run and self.ext.lower() != self.preferred_ext:
             self.convert()
 
     @abstractmethod
@@ -88,23 +92,39 @@ class TruMedia(ABC):
     @property
     def json_file_path(self):
         if self._json_file_path is None:
-            if "(" in self.media_path and ")" in self.media_path:
-                start = self.media_path.find("(")
-                end = self.media_path.find(")")
-                base_file = self.media_path[:start]
-                file_num = self.media_path[start + 1:end]
-                _file = f"{base_file}{self.ext}({file_num})"
-            else:
-                _file = self.media_path
-
-            pattern = re.compile(rf"^{re.escape(_file)}.*?\.json$")
-            dir_path = os.path.dirname(self.media_path) or "."
-            for json_file in glob(f"{_file}*.json"):
-                json_file_path = os.path.join(dir_path, json_file)
-                if pattern.match(json_file_path):
-                    self._json_file_path = json_file_path
-                    break
+            self._json_file_path = self._find_json_sidecar(self.media_path)
         return self._json_file_path
+
+    @staticmethod
+    def _find_json_sidecar(media_path: str) -> str | None:
+        """
+        Locate the Google-Takeout JSON sidecar for ``media_path``.
+
+        Handles three sidecar conventions:
+          - ``<media>.json``                          (IMG_1234.jpg.json)
+          - ``<media without ext>.json``              (IMG_1234.json)
+          - ``<media>.supplemental-metadata.json``    (newer Takeout exports)
+
+        Takeout caps sidecar filenames at 51 chars total, so when the
+        ``.supplemental-metadata.json`` form would overflow, Takeout truncates
+        the literal suffix from the right (``.supplemental-metadat.json``,
+        ``.supplemental-metada.json`` ... ``.s.json``). We match any non-empty
+        prefix of ``supplemental-metadata`` for that reason. We also try the
+        ext-stripped form with the same suffix.
+        """
+        stem, _ = os.path.splitext(media_path)
+        suffix = "supplemental-metadata"
+        bases = (media_path, stem)
+        candidates: list[str] = []
+        for base in bases:
+            candidates.append(f"{base}.json")
+        for base in bases:
+            for length in range(len(suffix), 0, -1):
+                candidates.append(f"{base}.{suffix[:length]}.json")
+        for candidate in candidates:
+            if os.path.isfile(candidate):
+                return candidate
+        return None
 
     @json_file_path.setter
     def json_file_path(self, value):
@@ -128,9 +148,7 @@ class TruMedia(ABC):
 
     @logger.setter
     def logger(self, value: logging.Logger | None):
-        if value is None:
-            self._logger = get_logger()
-        self._logger = value
+        self._logger = get_logger() if value is None else value
 
     @property
     def hash(self):
@@ -166,7 +184,7 @@ class TruMedia(ABC):
                     timestamp = int(self.json_data.get("photoTakenTime").get("timestamp"))
                     self._date_taken = datetime.fromtimestamp(timestamp)
                     self.logger.info(f"Using date from JSON photoTakenTime: {self._date_taken}")
-                except Exception as exc:
+                except (AttributeError, TypeError, ValueError, OSError) as exc:
                     self.logger.error(f"Unable to get date from JSON photoTakenTime:\n{exc}")
 
             # Second priority: Try to get date from file metadata
@@ -180,9 +198,9 @@ class TruMedia(ABC):
                                 try:
                                     self._date_taken = datetime.strptime(self.exif_data.get(_date_field), date_format)
                                     break
-                                except Exception as exc:
-                                    self.logger.error(
-                                        f"Unable to convert date field using format {date_format}: {_date_field}\n{exc}"
+                                except (TypeError, ValueError) as exc:
+                                    self.logger.debug(
+                                        f"Date field did not match format {date_format}: {_date_field}\n{exc}"
                                     )
                     if self._date_taken is None and "PNG:XMLcommagicmemoriesm4" in self.exif_data:
                         try:
@@ -190,9 +208,9 @@ class TruMedia(ABC):
                             if tree.attrib.get("creation") is not None:
                                 self.logger.info("Using m4 creation date")
                                 self._date_taken = datetime.strptime(tree.attrib.get("creation"), DATE_FORMATS.get("m4"))
-                        except Exception as exc:
+                        except (ET.ParseError, TypeError, ValueError, AttributeError) as exc:
                             self.logger.error(f"Unable to get m4 creation date:\n{exc}")
-                except Exception as exc:
+                except (KeyError, AttributeError, TypeError) as exc:
                     self.logger.error(f'Unable to get exif data for file: {self.media_path}:\n{exc}')
 
             # Third priority: Try to parse date from filename
@@ -225,7 +243,7 @@ class TruMedia(ABC):
                         except ValueError:
                             # This format didn't match, try the next one
                             continue
-                except Exception as exc:
+                except (OSError, ValueError, TypeError) as exc:
                     self.logger.error(f"Unable to parse date from filename: {exc}")
 
             if self._date_taken is None:
@@ -263,10 +281,6 @@ class TruMedia(ABC):
         """
         Reconcile mime type with file extension (common implementation)
         """
-        import mimetypes
-        import magic
-        import shutil
-
         mime_guess = mimetypes.guess_type(self.media_path)[0]
         mime_actual = magic.from_file(self.media_path, mime=True)
 
@@ -287,8 +301,11 @@ class TruMedia(ABC):
 
             for key, value in file_updates.items():
                 source = getattr(self, key)
+                if self.dry_run:
+                    self.logger.info(f"[DRY RUN] Would update {key} '{source}' to '{value}'")
+                    continue
                 if self.dev_mode:
-                    self.logger.info(f"Would update {key} '{source}' to '{value}'")
+                    self.logger.info(f"Would update {key} '{source}' to '{value}' (dev_mode: copying)")
                     shutil.copy(source, value)
                 else:
                     self.logger.info(f"Updating {key} '{source}' to '{value}'")
@@ -335,8 +352,7 @@ class TruMedia(ABC):
                     if not self.overwrite_comment and user_comment:
                         try:
                             data_dict = xmltodict.parse(user_comment)
-                        except Exception:
-                            # if we can't parse the user comment, add existing comment as a note
+                        except ExpatError:
                             if "METADATA-START" in user_comment:
                                 data_dict = {"UserComment": {}}
                             else:
@@ -393,12 +409,25 @@ class TruMedia(ABC):
             if isinstance(_value, str):
                 _value = _value.encode('ascii', 'ignore').decode('ascii')
                 tags[_field] = _value
-            exif_field = f"EXIF:{_field}"
-            if exif_field in self.exif_data and self.exif_data.get(exif_field) == _value:
+            # Compare against the appropriate prefixed field (EXIF:, QuickTime:, etc.).
+            # Also fall back to scanning all known prefixes so video tags don't
+            # always re-write on every run.
+            full_field = self._date_field(_field) if ':' not in _field else _field
+            existing_value = self.exif_data.get(full_field)
+            if existing_value is None:
+                # Search any prefix (e.g. for tags _date_field doesn't know about).
+                for exif_key, exif_val in self.exif_data.items():
+                    if exif_key.split(':')[-1] == _field:
+                        existing_value = exif_val
+                        break
+            if existing_value == _value:
                 del_tags.append(_field)
         for _tag in del_tags:
             del tags[_tag]
         if tags:
+            if self.dry_run:
+                self.logger.debug(f"[DRY RUN] Would update tags for {media_path}\n\t{tags}")
+                return
             self.logger.debug(f"Updating tags for {media_path}\n\t{tags}")
             with ExifToolHelper() as _eth:
                 if self.verbose:

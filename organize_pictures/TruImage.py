@@ -1,16 +1,16 @@
 import logging
-import hashlib
 import os
 import pathlib
 import shutil
-import tempfile
 
+import magic
 from exiftool.exceptions import ExifToolExecuteError
 from PIL import Image
 from pillow_heif import register_heif_opener
 
 from organize_pictures.utils import MEDIA_TYPES, EXIF_DATE_FIELDS, FILE_EXTS
 from organize_pictures.TruMedia import TruMedia
+from organize_pictures.image_hash import hash_image_file
 
 register_heif_opener()
 
@@ -23,21 +23,31 @@ class TruImage(TruMedia):
             media_path: str,
             json_file_path: str = None,
             logger: logging.Logger = None,
-            verbose: bool = False
+            verbose: bool = False,
+            dry_run: bool = False
     ):
-        super().__init__(media_path=media_path, json_file_path=json_file_path, logger=logger, verbose=verbose)
+        super().__init__(
+            media_path=media_path,
+            json_file_path=json_file_path,
+            logger=logger,
+            verbose=verbose,
+            dry_run=dry_run,
+        )
         self.dev_mode = False
         self._animation = None
         # set the valid property to trigger validation
         self.valid = None
 
     @TruMedia.valid.setter
-    def valid(self, _):
-        self._valid = self.ext.lower() in MEDIA_TYPES.get('image')
-        if self.valid:
-            self._reconcile_mime_type()
-        if self.valid:
-            self._write_json_data_to_media()
+    def valid(self, value):
+        if value is None:
+            self._valid = self.ext.lower() in MEDIA_TYPES.get('image')
+            if self._valid:
+                self._reconcile_mime_type()
+            if self._valid:
+                self._write_json_data_to_media()
+            return
+        self._valid = bool(value)
 
     @property
     def media_type(self):
@@ -80,29 +90,31 @@ class TruImage(TruMedia):
         Regenerate image
         :return:
         """
+        if self.dry_run:
+            self.logger.warning(f"[DRY RUN] Would regenerate image: {self.media_path}")
+            return False
         try:
             self.logger.warning(f"Regenerating image: {self.media_path}")
-            # get exif data
             exif_data = self.exif_data
-            # regenerate image
             Image.open(self.media_path).save(self.media_path)
             self.regenerated = True
             # Reset cached EXIF data since the file was regenerated
             self._exif_data = None
-            # update exif data
             self.logger.debug("Image regenerated; trying to rewrite exif data")
             tags = {tag.replace("EXIF:", ""): value for tag, value in exif_data.items() if tag.startswith("EXIF:")}
             self._update_tags(media_path=self.media_path, tags=tags)
             self.logger.info(f"Successfully regenerated image: {self.media_path}")
             return True
         except Exception as exc:
-            self.logger.error(f"Failed to regenerate image: {self.media_path}\n{exc}")
+            try:
+                exc_summary = f"{type(exc).__name__}: {exc!s}"
+            except Exception:  # noqa: BLE001 -- exc.__str__ may itself misbehave
+                exc_summary = type(exc).__name__
+            self.logger.error("Failed to regenerate image: %s -- %s", self.media_path, exc_summary)
             return False
 
     def _reconcile_mime_type(self):
         """Override parent method to handle image-specific regeneration logic"""
-        import magic
-
         mime_actual = magic.from_file(self.media_path, mime=True)
 
         if not mime_actual.startswith("image/"):
@@ -123,14 +135,17 @@ class TruImage(TruMedia):
             if os.path.isfile(_file):
                 image_animation = _file
             elif os.path.isfile(_file_upper):
-                # rename file ext to lowercase
-                shutil.move(_file_upper, _file)
-                image_animation = _file
+                if self.dry_run:
+                    self.logger.info(f"[DRY RUN] Would rename {_file_upper} -> {_file}")
+                    image_animation = _file_upper
+                else:
+                    shutil.move(_file_upper, _file)
+                    image_animation = _file
 
-        if image_animation:
+        if image_animation and not self.dry_run:
             # convert video to preferred format
             ext = pathlib.Path(image_animation).suffix
-            if ext is not FILE_EXTS.get('video_preferred'):
+            if ext != FILE_EXTS.get('video_preferred'):
                 _new_file = image_animation.replace(ext, FILE_EXTS.get('video_preferred'))
                 if self._convert_video(image_animation, _new_file):
                     image_animation = _new_file
@@ -138,20 +153,17 @@ class TruImage(TruMedia):
         return image_animation
 
     def _get_media_hash(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            try:
-                self.logger.debug(f"Getting hash for {self.media_path}")
-                temp_file = f"{temp_dir}/{os.path.basename(self.media_path)}"
-                image = Image.open(self.media_path)
-                image.save(temp_file)
-                image.close()
-                image = Image.open(temp_file)
-                media_hash = hashlib.md5(image.tobytes()).hexdigest()
-                image.close()
-                self._hash = media_hash
-            except Exception:  # pylint: disable=broad-except
-                self.logger.error(f"Error opening image: {self.media_path}")
-                self._hash = None
+        # Format-aware byte hash. Walks the file's own structure (JPEG markers,
+        # PNG chunks, ISOBMFF boxes for HEIC) and hashes only the bytes that
+        # determine what the picture looks like, skipping EXIF/XMP/ICC/IPTC/
+        # comments. Two files that are visually identical but differ only in
+        # metadata produce the same hash. Hashes are deterministic across
+        # machines and library versions because no decoding is involved.
+        self.logger.debug(f"Getting hash for {self.media_path}")
+        digest = hash_image_file(self.media_path)
+        if digest is None:
+            self.logger.error(f"Error hashing image: {self.media_path}")
+        self._hash = digest
 
 
 
@@ -168,18 +180,21 @@ class TruImage(TruMedia):
 
     def open(self):
         try:
-            image = Image.open(self.media_path)
-            return image
-        except Exception as exc:
+            return Image.open(self.media_path)
+        except (OSError, ValueError, Image.UnidentifiedImageError, Image.DecompressionBombError) as exc:
             self.logger.error(f"Failed to open image: {self.media_path}\n{exc}")
+            return None
 
     def show(self):
+        image = self.open()
+        if image is None:
+            return
         try:
-            image = self.open()
             image.show()
-            image.close()
-        except Exception as exc:
+        except OSError as exc:
             self.logger.error(f"Failed to show image: {self.media_path}\n{exc}")
+        finally:
+            image.close()
 
     def convert(self, dest_ext: str | None = None):
         if dest_ext is None:
@@ -219,8 +234,12 @@ class TruImage(TruMedia):
 
                 self._write_json_data_to_media()
         except Exception as exc:
-            self.logger.error(f"Failed conversion attempt via {method}: {self.media_path}\n{exc}")
-            exit()
+            try:
+                exc_summary = f"{type(exc).__name__}: {exc!s}"
+            except Exception:  # noqa: BLE001 -- exc.__str__ may itself misbehave
+                exc_summary = type(exc).__name__
+            self.logger.error("Failed conversion attempt via %s: %s -- %s", method, self.media_path, exc_summary)
+            self._valid = False
             return False
         self.logger.debug(
             f"Successfully converted file via {method}:\n\tSource: {self.media_path}\n\tDestination: {dest_file}"
@@ -291,8 +310,6 @@ class TruImage(TruMedia):
         """
         Return a user-friendly string representation
         """
-        import os
-
         filename = os.path.basename(self.media_path)
         status = "✅ Valid" if self.valid else "❌ Invalid"
 

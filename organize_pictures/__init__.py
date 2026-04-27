@@ -1,7 +1,6 @@
 import atexit
 import os
 from datetime import timedelta
-import hashlib
 import pathlib
 import shutil
 from glob import glob
@@ -15,7 +14,6 @@ from organize_pictures.utils import (
     get_logger,
     MEDIA_TYPES,
     OFFSET_CHARS,
-    EXIF_DATE_FIELDS,
     DATE_FORMATS,
     FILE_EXTS,
 )
@@ -53,6 +51,9 @@ class OrganizePictures:
         self.verbose = verbose
 
         self.results = {"moved": 0, "duplicate": 0, "failed": 0, "manual": 0, "invalid": 0, "deleted": 0}
+        self.manual_review_files: list[str] = []
+        self.failed_files: list[str] = []
+        self.invalid_files: list[str] = []
 
         self.extensions = extensions
         if self.extensions is None:
@@ -71,15 +72,18 @@ class OrganizePictures:
             db_file = f'/raid2/{self.db_filename}'
         else:
             db_file = f'./{self.db_filename}'
-        create = False
-        if not os.path.isfile(db_file):
+
+        if self.dry_run and not os.path.isfile(db_file):
+            # No DB yet: in dry-run mode, use an in-memory DB so we don't create a real one.
+            db_file = ":memory:"
             create = True
+        else:
+            create = not os.path.isfile(db_file)
 
         self.db_conn = sqlite3.connect(db_file)
         self.dbc = self.db_conn.cursor()
 
         if create:
-            # Create table
             self.dbc.execute(
                 f"CREATE TABLE {self.table_name} (image_path text, hash text, UNIQUE(image_path) ON CONFLICT IGNORE)"
             )
@@ -131,12 +135,12 @@ class OrganizePictures:
         return f"{file_info.get('dir')}/{file_info.get('filename')}{file_info.get('ext')}"
 
     def _check_db_for_media_path(self, media_path):
-        sql = f'SELECT * FROM image_hashes WHERE image_path = "{media_path}"'
-        return dict(self.dbc.execute(sql).fetchall())
+        sql = f"SELECT * FROM {self.table_name} WHERE image_path = ?"
+        return dict(self.dbc.execute(sql, (media_path,)).fetchall())
 
     def _check_db_for_media_hash(self, media_hash):
-        sql = f'SELECT * FROM image_hashes WHERE hash = "{media_hash}"'
-        return dict(self.dbc.execute(sql).fetchall())
+        sql = f"SELECT * FROM {self.table_name} WHERE hash = ?"
+        return dict(self.dbc.execute(sql, (media_hash,)).fetchall())
 
     def _check_db_for_media_path_hash(self, media):
         return self._check_db_for_media_hash(media.hash)
@@ -146,9 +150,9 @@ class OrganizePictures:
             self.logger.error(f"Media path does not exist: {media_path}")
             return False
         media = self._init_media_file(media_file_path=media_path)
-        if media.hash:
-            sql = f'INSERT INTO image_hashes VALUES ("{media_path}","{media.hash}")'
-            self.dbc.execute(sql)
+        if media and media.hash:
+            sql = f"INSERT INTO {self.table_name} VALUES (?, ?)"
+            self.dbc.execute(sql, (media_path, media.hash))
             self.current_hash = None
             return True
         return False
@@ -160,7 +164,9 @@ class OrganizePictures:
             recursive: bool = True
     ):
         """
-        Get all files in the given path matching the given pattern and extensions
+        Get all files in the given path matching the given pattern and extensions.
+        Files inside `self.dest_dir` are excluded so a previous run's output is never
+        re-ingested.
         :param base_dir: Base directory to search
         :param extensions: Extensions to search for
         :param recursive:
@@ -168,54 +174,81 @@ class OrganizePictures:
         """
         if extensions is None:
             extensions = self.extensions
-        return [
-            os.path.abspath(_file) for _file in sorted(glob(f"{base_dir}/**/*", recursive=recursive))
-            if pathlib.Path(_file).suffix.lower() in extensions
-        ]
+        dest_real = os.path.realpath(self.dest_dir) if self.dest_dir else None
+        results = []
+        for _file in sorted(glob(f"{base_dir}/**/*", recursive=recursive)):
+            if pathlib.Path(_file).suffix.lower() not in extensions:
+                continue
+            abs_path = os.path.abspath(_file)
+            if dest_real:
+                real = os.path.realpath(abs_path)
+                if real == dest_real or real.startswith(dest_real + os.sep):
+                    continue
+            results.append(abs_path)
+        return results
 
     def _init_media_file(self, media_file_path: str):
         for media_type in MEDIA_TYPES:
             if pathlib.Path(media_file_path).suffix.lower() in MEDIA_TYPES.get(media_type):
                 match media_type:
                     case 'image':
-                        return TruImage(media_path=media_file_path, logger=self.logger)
+                        return TruImage(
+                            media_path=media_file_path, logger=self.logger, dry_run=self.dry_run
+                        )
                     case 'video':
-                        return TruVideo(media_path=media_file_path, logger=self.logger)
+                        return TruVideo(
+                            media_path=media_file_path, logger=self.logger, dry_run=self.dry_run
+                        )
         return None
 
     def _get_medias(self, base_dir: str):
         """
-        Get objects for media in the given path. Check json files first for metadata to get matching media files,
-        since they don't always match.
+        Get objects for media in the given path. Group files by base name first so duplicate
+        base names can be flagged for manual intervention without partial-state bugs.
         :param base_dir: Path to search for media files
         :return:
         """
-        medias = {}
-        # then process media files
         self.logger.debug(f"Pre-processing media files in {base_dir}")
         media_files = self._get_file_paths(base_dir=base_dir)
-        media_files_count = len(media_files)
-        for index, media_file_path in enumerate(media_files, 1):
+
+        groups: dict[str, list[str]] = {}
+        for media_file_path in media_files:
             file_base_name = pathlib.Path(media_file_path).stem
 
             if "(" in file_base_name or ")" in file_base_name or len(os.path.basename(media_file_path)) >= 146:
-                # manual intervention required
                 self.logger.error(
                     f"Manual intervention required for file (filename inconsistencies): {media_file_path}"
                 )
+                self.manual_review_files.append(media_file_path)
                 self.results['manual'] += 1
                 continue
-            self.logger.debug(f"Pre-processing media file {index} / {media_files_count}: {media_file_path}")
-            # skip files found in json files
-            if file_base_name not in medias and file_base_name not in self.excluded:
-                medias[file_base_name] = self._init_media_file(media_file_path=media_file_path)
-            else:
-                self.logger.error(f"Manual intervention required for file (duplicate filename base): {media_file_path}")
-                if file_base_name in medias:
-                    del medias[file_base_name]
-                if file_base_name not in self.excluded:
-                    self.excluded.append(file_base_name)
-                self.results['manual'] += 1
+
+            groups.setdefault(file_base_name, []).append(media_file_path)
+
+        media_files_count = len(media_files)
+        medias = {}
+        index = 0
+        for file_base_name, paths in groups.items():
+            if len(paths) > 1:
+                for path in paths:
+                    self.logger.error(
+                        f"Manual intervention required for file (duplicate filename base): {path}"
+                    )
+                    self.excluded.append(path)
+                    self.manual_review_files.append(path)
+                self.results['manual'] += len(paths)
+                continue
+
+            index += 1
+            self.logger.debug(f"Pre-processing media file {index} / {media_files_count}: {paths[0]}")
+            media = self._init_media_file(media_file_path=paths[0])
+            if media is None:
+                self.logger.error(f"Unable to initialize media file: {paths[0]}")
+                self.invalid_files.append(paths[0])
+                self.results['invalid'] += 1
+                continue
+            medias[file_base_name] = media
+
         return dict(sorted(medias.items()))
 
     def _get_new_fileinfo(self, media: TruImage | TruVideo):
@@ -236,13 +269,14 @@ class OrganizePictures:
 
         if not os.path.isdir(_dir):
             self.logger.debug(f"Destination path does not exist, creating: {_dir}")
-            os.makedirs(_dir)
+            if not self.dry_run:
+                os.makedirs(_dir)
         if not os.path.exists(new_file_path):
             return _new_file_info
 
         self.logger.debug(f"Destination file already exists: {new_file_path}")
         media2 = self._init_media_file(media_file_path=new_file_path)
-        if media2.valid and media.hash == media2.hash:
+        if media2 and media2.valid and media.hash == media2.hash:
             self.logger.debug(f"[DUPLICATE] Destination file matches source file: {new_file_path}")
             _new_file_info['duplicate'] = True
             return _new_file_info
@@ -250,7 +284,26 @@ class OrganizePictures:
         media.date_taken = media.date_taken + timedelta(seconds=1)
         return self._get_new_fileinfo(media)
 
+    def _simulate_copy(self, media: TruImage | TruVideo, dest_info: dict) -> dict:
+        """
+        Return the source -> destination mapping `media.copy()` would produce,
+        without touching the filesystem. Used for dry-run mode.
+        """
+        dest_dir = dest_info.get("dir")
+        filename = dest_info.get("filename")
+        ext = dest_info.get("ext") or media.preferred_ext
+        files: dict[str, str] = {media.media_path: f"{dest_dir}/{filename}{ext}"}
+        if media.json_file_path:
+            suffix = ext if media.media_type == "image" else ""
+            files[media.json_file_path] = f"{dest_dir}/{filename}{suffix}.json"
+        animation = getattr(media, "animation", None)
+        if animation:
+            files[animation] = f"{dest_dir}/{filename}{FILE_EXTS.get('video_preferred')}"
+        return files
+
     def run(self):
+        if self.dry_run:
+            self.logger.info("DRY RUN: no files will be copied, deleted, or DB records inserted")
         cleanup_files = []
         medias = self._get_medias(self.source_dir)
         media_count = len(medias)
@@ -258,6 +311,7 @@ class OrganizePictures:
             media_file = media.media_path
             if not media.valid:
                 self.logger.error(f"Invalid media: {media_file}")
+                self.invalid_files.append(media_file)
                 self.results['invalid'] += 1
                 continue
             self.logger.info(
@@ -275,29 +329,41 @@ class OrganizePictures:
                 new_file_info = self._get_new_fileinfo(media)
                 if not new_file_info.get('duplicate'):
                     try:
-                        copied = media.copy(new_file_info)
+                        if self.dry_run:
+                            copied = self._simulate_copy(media, new_file_info)
+                            for source, dest in copied.items():
+                                self.logger.info(f"[DRY RUN] Would copy:\n\t{source}\n\t-> {dest}")
+                        else:
+                            copied = media.copy(new_file_info)
                         cleanup_files += copied.keys()
                         self.results['moved'] += len(copied)
-                        # add dest media path and hash to db
-                        self._insert_media_hash(copied[media.media_path])
+                        if not self.dry_run:
+                            # add dest media path and hash to db
+                            self._insert_media_hash(copied[media.media_path])
                     except shutil.Error as exc:
+                        self.failed_files.append(media_file)
                         self.results['failed'] += 1
                         self.logger.error(f"Failed to move file: {media_file}\n{exc}")
                 else:
-                    self.logger.debug(f"[DUPLICATE] File already exists: {media_file} -> {new_file_info.get('path')}")
+                    new_file_path = self._file_path(new_file_info)
+                    self.logger.debug(f"[DUPLICATE] File already exists: {media_file} -> {new_file_path}")
                     self.results['duplicate'] += 1
-                    self._insert_media_hash(self._file_path(new_file_info))
-                    # file is already moved
-                    self.logger.info(f"File already moved: {media_file} -> {new_file_info.get('path')}")
+                    if not self.dry_run:
+                        self._insert_media_hash(new_file_path)
+                    self.logger.info(f"File already moved: {media_file} -> {new_file_path}")
                     cleanup_files += media.files.values()
             else:
                 self.logger.error(f"Unable to determine date taken for file: {media_file}")
+                self.failed_files.append(media_file)
                 self.results['failed'] += 1
 
         if cleanup_files and self.cleanup:
             for cleanup_file in list(set(cleanup_files)):
                 if cleanup_file:
                     self.results['deleted'] += 1
-                    self.logger.info(f"Deleting file: {cleanup_file}")
-                    os.remove(cleanup_file)
+                    if self.dry_run:
+                        self.logger.info(f"[DRY RUN] Would delete file: {cleanup_file}")
+                    else:
+                        self.logger.info(f"Deleting file: {cleanup_file}")
+                        os.remove(cleanup_file)
         return self.results

@@ -2,50 +2,55 @@
 
 import sys
 import os
-import time
 import sqlite3
 from pillow_heif import register_heif_opener
 
 from organize_pictures.TruImage import TruImage
 
-register_heif_opener()
-
-image_extensions = ["jpg", "jpeg", "png", "heic"]
-base_dir = "/raid/media/Pictures"
-
-db_filename = 'pictures.db'
-table_name = "image_hashes"
-if os.path.isfile(f'/raid2/{db_filename}'):
-    db_file = f'/raid2/{db_filename}'
-else:
-    db_file = f'./{db_filename}'
-create = False
-if not os.path.isfile(db_file):
-    print(f"DB file '{db_file}' not found")
-    exit()
-
-conn = sqlite3.connect(db_file)
-c = conn.cursor()
+TABLE_NAME = "image_hashes"
+DB_FILENAME = "pictures.db"
 
 
-def get_record(image_path: TruImage | str):
+def find_db_file() -> str:
+    for candidate in (f"/raid2/{DB_FILENAME}", f"./{DB_FILENAME}"):
+        if os.path.isfile(candidate):
+            return candidate
+    raise FileNotFoundError(f"DB file '{DB_FILENAME}' not found in /raid2/ or ./")
+
+
+def get_record(cursor, image_path: TruImage | str) -> dict:
     if isinstance(image_path, TruImage):
         image_path = image_path.media_path
+    sql = f"SELECT * FROM {TABLE_NAME} WHERE image_path = ?"
+    return dict(cursor.execute(sql, (image_path,)).fetchall())
 
-    sql = f"SELECT * FROM {table_name} WHERE image_path = \"{image_path}\""
-    return dict(c.execute(sql).fetchall())
+
+def main():
+    register_heif_opener()
+
+    if len(sys.argv) < 2:
+        print("Usage: checkfile.py <path-to-image>")
+        sys.exit(1)
+
+    db_file = find_db_file()
+    conn = sqlite3.connect(db_file)
+    cursor = conn.cursor()
+
+    try:
+        _file = os.path.abspath(sys.argv[1])
+        if not os.path.isfile(_file):
+            print(f"File not found: {_file}")
+            sys.exit(1)
+
+        image = TruImage(media_path=_file)
+        print(image.exif_data)
+        print(f"Checking: {image.media_path}")
+        print("Hash:", image.hash)
+        if record := get_record(cursor, image):
+            print(f"Record found: {record}")
+    finally:
+        conn.close()
 
 
-_file = os.path.abspath(sys.argv[1])
-if not os.path.isfile(_file):
-    print(f"File not found: {_file}")
-
-# if record := get_record(_file):
-#     print(f"Record found: {record}")
-# exit()
-_image = TruImage(media_path=_file)
-print(_image.exif_data)
-print(f"Checking: {_image.media_path}")
-print("Hash:", _image.hash)
-if record := get_record(_image):
-    print(f"Record found: {record}")
+if __name__ == "__main__":
+    main()

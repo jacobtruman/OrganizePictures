@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-import logging
 import os
 import argparse
 import re
@@ -15,8 +14,6 @@ for exts in MEDIA_TYPES.values():
 
 
 def extensions_list_str(values):
-    if values is None:
-        return None
     return [ext if ext.startswith(".") else f".{ext}" for ext in values.split(',')]
 
 
@@ -26,12 +23,8 @@ def resolve_path(path):
 
 def parse_offset(offset):
     offsets = OrganizePictures.init_offset()
-    ofsset_options = re.findall(r"\d{1,3}[A-Za-z]{1}", offset)
-    for offset_option in ofsset_options:
-        if offset_option[-1] in OFFSET_CHARS:
-            offsets[offset_option[-1]] = int(offset_option[:-1])
-        else:
-            logging.error(f"Invalid offset option: {offset_option}")
+    for value, char in re.findall(rf"(\d+)([{OFFSET_CHARS}])", offset):
+        offsets[char] = int(value)
     return offsets
 
 
@@ -68,8 +61,8 @@ def parse_args():
     parser.add_argument(
         '-d', '--destination_dir',
         dest='destination_dir',
-        help="Media destination directory",
-        default="./pictures/renamed",
+        help="Media destination directory (must not be inside source_dir)",
+        default="./pictures_organized",
         type=resolve_path,
     )
 
@@ -98,11 +91,19 @@ def parse_args():
     )
 
     parser.add_argument(
-        '-b', '--sub_dirs',
+        '-n', '--dry_run',
         action='store_true',
-        dest='sub_dirs',
-        help='Create year/month subdirectories',
+        dest='dry_run',
+        help='Simulate the run without copying, deleting, mutating files, or writing the database',
         default=False,
+    )
+
+    parser.add_argument(
+        '-b', '--no_sub_dirs',
+        action='store_false',
+        dest='sub_dirs',
+        help='Disable year/month subdirectory creation (sub_dirs is enabled by default)',
+        default=True,
     )
 
     parser.add_argument(
@@ -129,6 +130,14 @@ def parse_args():
     if args.source_dir == args.destination_dir:
         parser.error("Source and destination directories cannot be the same")
 
+    src = os.path.realpath(args.source_dir)
+    dst = os.path.realpath(args.destination_dir)
+    if dst == src or dst.startswith(src + os.sep) or src.startswith(dst + os.sep):
+        parser.error(
+            f"Destination directory ({args.destination_dir}) cannot be inside the "
+            f"source directory ({args.source_dir}), or vice versa."
+        )
+
     return args
 
 
@@ -145,6 +154,7 @@ def main():
         offset=args.offset,
         minus=args.minus,
         verbose=args.verbose,
+        dry_run=args.dry_run,
     )
 
     result = organizer.run()
@@ -155,29 +165,39 @@ def main():
         organizer.logger.info("📊 ORGANIZATION RESULTS SUMMARY")
         organizer.logger.info("=" * 50)
 
-        # Define labels and emojis for each result type
         result_labels = {
-            'moved': ('✅', 'Files Moved', 'success'),
-            'duplicate': ('🔄', 'Duplicates Skipped', 'info'),
-            'failed': ('❌', 'Failed (No Date/Copy Error)', 'error'),
-            'manual': ('⚠️', 'Manual Review Required', 'warning'),
-            'invalid': ('🚫', 'Invalid Files', 'error'),
-            'deleted': ('🗑️', 'Files Deleted', 'info'),
+            'moved': ('✅', 'Files Moved'),
+            'duplicate': ('🔄', 'Duplicates Skipped'),
+            'failed': ('❌', 'Failed (No Date/Copy Error)'),
+            'manual': ('⚠️', 'Manual Review Required'),
+            'invalid': ('🚫', 'Invalid Files'),
+            'deleted': ('🗑️', 'Files Deleted'),
         }
 
-        # Display each result with appropriate formatting
         for key, count in result.items():
-            icon, label, category = result_labels.get(key, (key.capitalize(), 'info'))
+            icon, label = result_labels.get(key, ('•', key.capitalize()))
             organizer.logger.info(f"{icon}\t{label:.<35} {count:>5}")
 
         organizer.logger.info("=" * 50)
 
-        # Display summary message
         total_processed = result.get('moved', 0) + result.get('duplicate', 0) + result.get('failed', 0)
         if total_processed > 0:
-            success_rate = (result.get('moved', 0) / total_processed * 100) if total_processed > 0 else 0
+            success_rate = (result.get('moved', 0) / total_processed * 100)
             organizer.logger.info(f"✨ Success Rate: {success_rate:.1f}%")
             organizer.logger.info("=" * 50 + "\n")
+
+        sections = [
+            ('⚠️  Manual Review Required', organizer.manual_review_files),
+            ('❌ Failed', organizer.failed_files),
+            ('🚫 Invalid', organizer.invalid_files),
+        ]
+        for header, paths in sections:
+            if not paths:
+                continue
+            organizer.logger.info(f"{header} ({len(paths)}):")
+            for path in paths:
+                organizer.logger.info(f"\t- {path}")
+            organizer.logger.info("")
 
 
 if __name__ == '__main__':

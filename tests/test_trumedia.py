@@ -154,6 +154,48 @@ class TestTruMediaJsonHandling:
         assert media.json_data is not None
         assert "photoTakenTime" in media.json_data
 
+    def test_json_file_path_finds_supplemental_metadata(self, tmp_path):
+        """Takeout's <media>.supplemental-metadata.json sidecar is recognized."""
+        test_file = tmp_path / "IMG_1234.jpg"
+        test_file.write_text("test")
+        json_file = tmp_path / "IMG_1234.jpg.supplemental-metadata.json"
+        json_file.write_text('{"photoTakenTime": {"timestamp": "1"}}')
+
+        media = ConcreteTruMedia(media_path=str(test_file))
+        assert media.json_file_path == str(json_file)
+
+    def test_json_file_path_finds_truncated_supplemental(self, tmp_path):
+        """Takeout truncates the suffix when total filename > 51 chars."""
+        test_file = tmp_path / "IMG_1234.jpg"
+        test_file.write_text("test")
+        json_file = tmp_path / "IMG_1234.jpg.supplemental-metadat.json"
+        json_file.write_text('{"photoTakenTime": {"timestamp": "1"}}')
+
+        media = ConcreteTruMedia(media_path=str(test_file))
+        assert media.json_file_path == str(json_file)
+
+    def test_json_file_path_finds_heavily_truncated_supplemental(self, tmp_path):
+        """Edge case: suffix truncated almost to nothing."""
+        test_file = tmp_path / "IMG_1234.jpg"
+        test_file.write_text("test")
+        json_file = tmp_path / "IMG_1234.jpg.s.json"
+        json_file.write_text('{"photoTakenTime": {"timestamp": "1"}}')
+
+        media = ConcreteTruMedia(media_path=str(test_file))
+        assert media.json_file_path == str(json_file)
+
+    def test_json_file_path_prefers_plain_over_supplemental(self, tmp_path):
+        """When both exist, the plain `.json` wins (it's the canonical sidecar)."""
+        test_file = tmp_path / "IMG_1234.jpg"
+        test_file.write_text("test")
+        plain = tmp_path / "IMG_1234.jpg.json"
+        plain.write_text('{"a": 1}')
+        suppl = tmp_path / "IMG_1234.jpg.supplemental-metadata.json"
+        suppl.write_text('{"b": 2}')
+
+        media = ConcreteTruMedia(media_path=str(test_file))
+        assert media.json_file_path == str(plain)
+
 
 class TestTruMediaDateHandling:
     """Test TruMedia date handling"""
